@@ -1,0 +1,1021 @@
+###############################################################################
+# TOPAS COMBINED SINGLE-FILE SIMULATION: JLAB UITF ND3 IRRADIATION MODEL
+#
+# Configuration Date: 2026-06-08
+# Corrected:         2026-06-08  (geometry overlap fixes + beam parameter fix)
+# Updated:           2026-06-09  (beam energy 8->7 MeV; dual-temperature
+#                                 operating parameters; NIST He densities)
+# Fixed:             2026-06-09  (parameterization scorer errors suppressed;
+#                                 Ge/ND3Target/MaxStepSize=0.005 cm added to
+#                                 prevent Geant4 navigation corruption at
+#                                 division boundaries; ParameterizationError
+#                                 MaxReports set to 0)
+# Reference Source: Chris Keith, "Status of Irradiations at the Upgraded
+#   Injector Test Facility", b1/Azz Collaboration Meeting, 2026-06-03
+# He-4 density sources:
+#   87 K: NIST virial EOS, B(87K)=+8.36 cm3/mol (McCarty, J.Phys.Chem.Ref.Data
+#         2, 923, 1973); gas phase, 1 atm.
+#   2  K: McCarty, NBS TN-631 (1972), Appendix E isobar at 0.101325 MPa;
+#         compressed liquid He-II (below lambda point 2.1768 K).
+#
+# CORRECTIONS APPLIED (see inline FIX comments for details):
+#
+#  [UPD-1] BeamEnergy: 8.0->7.0 MeV (conservative operating value, 2026-06-09).
+#           Physics list comments updated to reflect 7 MeV.
+#
+#  [UPD-2] BeamRef/Current: 1.0e-6->1.0e-5 A for 87 K irradiation (10 uA);
+#           remains 1.0e-6 A for 2 K irradiation (1 uA). Both conditions
+#           are documented in the header; select the appropriate value for
+#           each run.
+#
+#  [UPD-3] HeliumGas_UITF/Density updated from placeholder (0.0362 g/cm3)
+#           to NIST values at 1 atm:
+#             87 K run: 5.601e-4 g/cm3  (normal gas; NIST virial EOS,
+#                        McCarty J.Phys.Chem.Ref.Data 2, 923, 1973)
+#             2  K run: 0.1620  g/cm3  (compressed liquid He-II;
+#                        McCarty NBS TN-631, 1972, Appendix E isobar)
+#           The material name HeliumGas_UITF is retained for file
+#           compatibility. In the 2 K file the coolant is liquid He-II
+#           (superfluid), not gas; annotate accordingly in post-processing.
+#           SET THE DENSITY BELOW TO MATCH THE RUN TEMPERATURE.
+#           Current setting: 87 K run (5.601e-4 g/cm3).
+#
+#  [FIX-1] BasketInnerWall: RMin 1.20->1.15, RMax 1.30->1.25, HL 1.30->1.25 cm
+#           Original volume (r=1.20-1.30) overlapped ND3Target (RMin=1.25).
+#           Wall is now entirely inside the coolant bore (r < 1.25 cm).
+#
+#  [FIX-2] BasketOuterWall: RMin 2.45->2.50, RMax 2.55->2.60, HL 1.30->1.25 cm
+#           Original volume (r=2.45-2.55) overlapped ND3Target (RMax=2.50).
+#           Wall is now entirely outside the ND3 annulus (r > 2.50 cm).
+#           Both HL values capped at 1.25 cm to match ND3Target and avoid
+#           protruding beyond the HeCryostatGas box (HLZ=3.0 cm -> +/-3 cm;
+#           cylinder HL=1.25 cm after RotX=90 deg occupies +/-1.25 cm in Z).
+#
+#  [FIX-3] BeamPositionCutoffX/Y: replaced unsupported inline arithmetic
+#           ("Raster/Width / 2.0 cm") with explicit values 1.25 cm / 1.00 cm.
+#           TOPAS does not evaluate division operators in parameter strings.
+#
+# Physical Scaling:
+#   Monte Carlo histories control statistical precision only. Physical dose,
+#   fluence, power, and thermal response are derived in post-analysis from
+#   MC-to-physical scaling factors calculated with user-specified operating
+#   parameters (beam current, irradiation duration, etc.).
+###############################################################################
+
+
+###############################################################################
+# ============================================================================ #
+# PART I: MATERIAL DEFINITIONS                                                #
+# (originally: materials_UITF_ND3.txt)                                        #
+# ============================================================================ #
+#
+# Material Specifications from Status Talk:
+#
+# 1. Solid ND3 Target:
+#    - Basket inventory: ~37 cm3, mass ~22 g
+#    - Bulk density: rho = 22 g / 37 cm3 ~ 0.5946 g/cm3
+#    - Composition: ND3 (deuterated ammonia)
+#    - Isotopic: N14 (100%), D (100%)
+#
+# 2. Helium Cooling Gas:
+#    - Cold feed (CTF): ~3 K, warm return: ~290 K
+#    - Density placeholder: 0.0362 g/cm3 (nominal conditions)
+#    - Production operation: requires proper He property table
+#
+# 3. Cryostat Windows:
+#    - Material: aluminum
+#    - Thickness: 0.1 mm (0.005 cm half-thickness in TOPAS geometry)
+#    - Density: 2.70 g/cm3 (standard Al)
+###############################################################################
+
+###############################################################################
+# 1. DEUTERATED AMMONIA (ND3) TARGET MATERIAL
+#
+# Molecular composition: ND3 = N14 + 3D
+#
+# Stoichiometric mass fractions:
+#   Molar mass = 14.003 + 3x2.014 = 20.045 g/mol
+#   N14 fraction = 14.003 / 20.045 ~ 0.6986
+#   D fraction = 6.042 / 20.045 ~ 0.3014
+#
+# Bulk density: 0.5946 g/cm3 (locked to status-talk basket specs: 37 cc, 22 g)
+# Mean excitation energy: 53.0 eV (typical for N/D compound)
+###############################################################################
+
+# Deuterium isotope (natural hydrogen-2)
+s:El/Deuterium/Symbol                       = "D"
+sv:El/Deuterium/IsotopeNames                = 1 "D2"
+uv:El/Deuterium/IsotopeAbundances           = 1 100.0
+i:Is/D2/Z                                   = 1
+i:Is/D2/N                                   = 2
+d:Is/D2/A                                   = 2.014101778 g/mole
+
+# Nitrogen-14 isotope (100% natural abundance)
+s:El/NitrogenEl/Symbol                      = "N"
+sv:El/NitrogenEl/IsotopeNames               = 1 "N14"
+uv:El/NitrogenEl/IsotopeAbundances          = 1 100.0
+i:Is/N14/Z                                  = 7
+i:Is/N14/N                                  = 14
+d:Is/N14/A                                  = 14.003074 g/mole
+
+# Composite material: Solid ND3
+sv:Ma/SolidND3_UITF/Components              = 2 "NitrogenEl" "Deuterium"
+uv:Ma/SolidND3_UITF/Fractions               = 2 0.6986 0.3014
+d:Ma/SolidND3_UITF/Density                  = 0.5946 g/cm3
+d:Ma/SolidND3_UITF/MeanExcitationEnergy     = 53.0 eV
+s:Ma/SolidND3_UITF/DefaultColor             = "blue"
+
+###############################################################################
+# 2. HELIUM COOLING GAS / LIQUID COOLANT
+#
+# Helium isotope: He-4 (essentially 100% natural abundance)
+#
+# Operating conditions from status talk:
+#   - Cold helium feed (~3 K) from the CTF
+#   - Warm helium return (~290 K)
+#   - Circulates through central coolant core
+#
+# Density specification (NIST values at 1 atm):
+#
+#   87 K irradiation (10 uA) — NORMAL GAS:
+#     rho = 5.601e-4 g/cm3
+#     Source: NIST virial EOS, B(87K) = +8.36 cm3/mol
+#             McCarty, J. Phys. Chem. Ref. Data 2, 923 (1973)
+#             Ideal gas: rho = PM/(RT) = 5.601e-4 g/cm3; virial correction < 0.12%
+#
+#   2 K irradiation (1 uA) — COMPRESSED LIQUID He-II (superfluid):
+#     rho = 0.1620 g/cm3
+#     Source: McCarty, NBS Technical Note 631 (1972), Appendix E,
+#             isobaric table at P = 0.101325 MPa (1 atm), T = 2.0 K
+#             Phase: He-II (below lambda point T_lambda = 2.1768 K at sat.)
+#             Saturation pressure at 2 K ~ 3.13 kPa << 1 atm -> compressed liquid
+#
+#   *** SET DENSITY BELOW TO MATCH THE RUN TEMPERATURE BEFORE EXECUTING ***
+#   Current setting: 87 K run.
+###############################################################################
+
+# Helium-4 isotope (100% natural abundance)
+s:El/HeliumEl/Symbol                        = "He"
+sv:El/HeliumEl/IsotopeNames                 = 1 "He4"
+uv:El/HeliumEl/IsotopeAbundances            = 1 100.0
+i:Is/He4/Z                                  = 2
+i:Is/He4/N                                  = 4
+d:Is/He4/A                                  = 4.002602 g/mole
+
+# Composite material: Helium coolant (gas at 87 K; liquid He-II at 2 K)
+# *** CHANGE DENSITY VALUE TO MATCH RUN TEMPERATURE (see header above) ***
+# 87 K run (gas,  1 atm): 5.601e-4 g/cm3   <- ACTIVE
+#  2 K run (He-II, 1 atm): 0.1620   g/cm3   <- COMMENT IN FOR 2K RUN
+sv:Ma/HeliumGas_UITF/Components             = 1 "HeliumEl"
+uv:Ma/HeliumGas_UITF/Fractions              = 1 1.0
+d:Ma/HeliumGas_UITF/Density                 = 5.601e-4 g/cm3
+s:Ma/HeliumGas_UITF/DefaultColor            = "blue"
+
+###############################################################################
+# 3. CRYOSTAT WINDOW MATERIAL
+#
+# Aluminum-27 isotope (essentially 100% natural abundance)
+# Standard aluminum density: 2.70 g/cm3
+# Window thickness: 0.1 mm (from status talk pages 9-10)
+#
+# Windows are modeled in geometry as:
+#   - UpstreamThinWindow: positioned at Z ~ -3.005 cm
+#   - DownstreamThinWindow: positioned at Z ~ +3.005 cm
+###############################################################################
+
+# Aluminum-27 isotope (100% natural abundance)
+s:El/AluminumEl/Symbol                      = "Al"
+sv:El/AluminumEl/IsotopeNames               = 1 "Al27"
+uv:El/AluminumEl/IsotopeAbundances          = 1 100.0
+i:Is/Al27/Z                                 = 13
+i:Is/Al27/N                                 = 27
+d:Is/Al27/A                                 = 26.981539 g/mole
+
+# Composite material: Aluminum (for windows)
+sv:Ma/UITFWindow_Default/Components         = 1 "AluminumEl"
+uv:Ma/UITFWindow_Default/Fractions          = 1 1.0
+d:Ma/UITFWindow_Default/Density             = 2.70 g/cm3
+s:Ma/UITFWindow_Default/DefaultColor        = "grey"
+
+
+###############################################################################
+# ============================================================================ #
+# PART II: GEOMETRY                                                           #
+# (originally: geometry_UITF_ND3.txt)                                         #
+# ============================================================================ #
+#
+# Geometry Lock (IrradiationStatus.pdf, pages 7-10):
+#   - Annular rotating basket/sample
+#   - Outer diameter: 5.0 cm -> RMax = 2.50 cm
+#   - Inner diameter (coolant tube): 2.5 cm -> RMin = 1.25 cm
+#   - Height: 2.5 cm -> HL = 1.25 cm
+#   - Active ND3 volume: pi*(2.502 - 1.252)*2.5 = 36.82 cm3 ~ 37 cc
+#   - Thin cryostat windows: 0.1 mm aluminum, upstream and downstream
+#   - Beam raster footprint: 2.5 x 2.0 cm2 (defined in Section IV)
+#   - Rotation axis: vertical (+Y direction), 6 deg/s
+#
+# Coordinate Convention:
+#   +Z: beam direction (downstream from source)
+#   +Y: vertical (rotation axis)
+#   TsCylinder local axis rotated by RotX = 90 deg to align with +Y
+#
+# NOTE ON VISUALIZATION (OpenGL/Qt):
+#   Color and DrawingStyle parameters below are used by the Qt/OpenGL viewer.
+#   To run headless (batch mode without a display), these are harmless to
+#   leave in place. If TOPAS is built without Qt and emits warnings, comment
+#   out all lines of the form:
+#     s:Ge/.../Color        = "..."
+#     s:Ge/.../DrawingStyle = "..."
+###############################################################################
+
+###############################################################################
+# 4. GEOMETRY VALIDATION
+#
+# Placed once here; no longer needs to be duplicated from the geometry include.
+###############################################################################
+
+b:Ge/CheckForOverlaps                       = "True"
+i:Ge/CheckForOverlapsResolution             = 10000
+b:Ge/CheckForUnusedComponents               = "True"
+b:Ge/QuitIfOverlapDetected                  = "True"
+
+###############################################################################
+# 5. WORLD CONTAINER
+###############################################################################
+
+s:Ge/World/Type                             = "TsBox"
+s:Ge/World/Material                         = "G4_AIR"
+d:Ge/World/HLX                              = 60.0 cm
+d:Ge/World/HLY                              = 60.0 cm
+d:Ge/World/HLZ                              = 80.0 cm
+b:Ge/World/Invisible                        = "True"
+
+###############################################################################
+# 6. HELIUM CRYOSTAT ENVELOPE
+#
+# Compact transport envelope containing the target and coolant. The PDF does
+# not specify the full cryostat bore or vessel dimensions; this volume
+# represents the helium-filled region and provides a logical parent for
+# target components. Dimensions are chosen to contain the target with margins
+# and extend along Z to accommodate window positions.
+###############################################################################
+
+s:Ge/HeCryostatGas/Type                     = "TsBox"
+s:Ge/HeCryostatGas/Parent                   = "World"
+s:Ge/HeCryostatGas/Material                 = "HeliumGas_UITF"
+d:Ge/HeCryostatGas/HLX                      = 4.0 cm
+d:Ge/HeCryostatGas/HLY                      = 4.0 cm
+d:Ge/HeCryostatGas/HLZ                      = 3.0 cm
+d:Ge/HeCryostatGas/TransZ                   = 0.0 cm
+s:Ge/HeCryostatGas/Color                    = "blue"
+s:Ge/HeCryostatGas/DrawingStyle             = "WireFrame"
+
+###############################################################################
+# 6A. UPSTREAM CRYOSTAT WINDOW
+#
+# Aluminum window, 0.1 mm thick, positioned 3.005 cm upstream (-Z direction)
+# from the target center. This places upstream surface at Z ~ -3.01 cm and
+# downstream surface at Z ~ -2.99 cm.
+###############################################################################
+
+s:Ge/UpstreamThinWindow/Type                = "TsBox"
+s:Ge/UpstreamThinWindow/Parent              = "World"
+s:Ge/UpstreamThinWindow/Material            = "UITFWindow_Default"
+d:Ge/UpstreamThinWindow/HLX                 = 2.0 cm
+d:Ge/UpstreamThinWindow/HLY                 = 2.0 cm
+d:Ge/UpstreamThinWindow/HLZ                 = 0.005 cm
+d:Ge/UpstreamThinWindow/TransZ              = -3.005 cm
+s:Ge/UpstreamThinWindow/Color               = "grey"
+s:Ge/UpstreamThinWindow/DrawingStyle        = "Solid"
+
+###############################################################################
+# 6B. DOWNSTREAM CRYOSTAT WINDOW
+#
+# Aluminum window, 0.1 mm thick, positioned 3.005 cm downstream (+Z direction)
+# from the target center. This places upstream surface at Z ~ 2.99 cm and
+# downstream surface at Z ~ 3.01 cm.
+###############################################################################
+
+s:Ge/DownstreamThinWindow/Type              = "TsBox"
+s:Ge/DownstreamThinWindow/Parent            = "World"
+s:Ge/DownstreamThinWindow/Material          = "UITFWindow_Default"
+d:Ge/DownstreamThinWindow/HLX               = 2.0 cm
+d:Ge/DownstreamThinWindow/HLY               = 2.0 cm
+d:Ge/DownstreamThinWindow/HLZ               = 0.005 cm
+d:Ge/DownstreamThinWindow/TransZ            = 3.005 cm
+s:Ge/DownstreamThinWindow/Color             = "grey"
+s:Ge/DownstreamThinWindow/DrawingStyle      = "Solid"
+
+###############################################################################
+# 7. ROTATING TARGET ASSEMBLY
+#
+# Group container for target components to rotate as a unit about the Y-axis
+# (vertical). Rotation is driven by time-dependent parameter
+# Tf/BasketRotation/Value defined in Section IX (Time and Rotation).
+###############################################################################
+
+s:Ge/BasketSpinAssembly/Type                = "Group"
+s:Ge/BasketSpinAssembly/Parent              = "HeCryostatGas"
+d:Ge/BasketSpinAssembly/TransX              = 0.0 cm
+d:Ge/BasketSpinAssembly/TransY              = 0.0 cm
+d:Ge/BasketSpinAssembly/TransZ              = 0.0 cm
+d:Ge/BasketSpinAssembly/RotX                = 0.0 deg
+# RotY is defined in Section 14 (Time and Rotation) as the time-dependent
+# parameter Tf/BasketRotation/Value. Defining it here as a static 0.0 would
+# create a duplicate that causes TOPAS to abort. See Section 14 below.
+d:Ge/BasketSpinAssembly/RotZ                = 0.0 deg
+
+###############################################################################
+# 8. ANNULAR ND3 TARGET
+#
+# Primary dose-scoring component with binning: 25 radial x 72 azimuthal x
+# 50 axial bins. Dimensions and mass locked to status-talk specifications.
+# RotX = 90 deg orients the cylinder vertically (local +Z axis -> world +Y axis).
+###############################################################################
+
+s:Ge/ND3Target/Type                         = "TsCylinder"
+s:Ge/ND3Target/Parent                       = "BasketSpinAssembly"
+s:Ge/ND3Target/Material                     = "SolidND3_UITF"
+d:Ge/ND3Target/RMin                         = 1.25 cm
+d:Ge/ND3Target/RMax                         = 2.50 cm
+d:Ge/ND3Target/HL                           = 1.25 cm
+d:Ge/ND3Target/RotX                         = 90.0 deg
+i:Ge/ND3Target/RBins                        = 25
+i:Ge/ND3Target/PhiBins                      = 72
+i:Ge/ND3Target/ZBins                        = 50
+s:Ge/ND3Target/Color                        = "blue"
+s:Ge/ND3Target/DrawingStyle                 = "Solid"
+# FIX (2026-06-09): Limit step size inside ND3Target to reduce Geant4 navigation
+# corruption that causes scorer hits in the non-parameterized envelope volume.
+# A step of 0.005 cm (50 um) is well below the thinnest bin (~0.05 cm radial)
+# and forces re-navigation before a track can ghost across a division boundary.
+d:Ge/ND3Target/MaxStepSize                  = 0.005 cm
+
+###############################################################################
+# 8A. CENTRAL HELIUM COOLANT CORE
+#
+# Cylindrical void at target center (RMin = 0, RMax = 1.25 cm) for cold
+# helium gas circulation. Dimensions match the target inner bore (2.5 cm ID).
+###############################################################################
+
+s:Ge/HeliumCoolantCore/Type                 = "TsCylinder"
+s:Ge/HeliumCoolantCore/Parent               = "BasketSpinAssembly"
+s:Ge/HeliumCoolantCore/Material             = "HeliumGas_UITF"
+d:Ge/HeliumCoolantCore/RMin                 = 0.0 cm
+d:Ge/HeliumCoolantCore/RMax                 = 1.15 cm
+# FIX (2026-06-08): RMax reduced 1.25->1.15 cm. HeliumCoolantCore
+# (r=0-1.15) and BasketInnerWall (r=1.15-1.25) are now contiguous
+# siblings with no radial overlap.
+d:Ge/HeliumCoolantCore/HL                   = 1.25 cm
+d:Ge/HeliumCoolantCore/RotX                 = 90.0 deg
+s:Ge/HeliumCoolantCore/Color                = "blue"
+s:Ge/HeliumCoolantCore/DrawingStyle         = "WireFrame"
+
+###############################################################################
+# 8B. BASKET INNER WALL
+#
+# Thin aluminum shell (1 mm thickness) forming the inner bore of the basket.
+# Placed INSIDE the coolant core bore (r < 1.25 cm) so it does not overlap
+# ND3Target (RMin = 1.25 cm).
+#
+# FIX (2026-06-08): Original RMin=1.20/RMax=1.30/HL=1.30 overlapped both
+# ND3Target (shares r=1.20-1.30 cm) and the cryostat box (HL exceeded 1.25).
+# Corrected to RMin=1.15/RMax=1.25/HL=1.25: wall now lives entirely inside
+# the helium coolant bore, flush against ND3Target's inner surface.
+###############################################################################
+
+s:Ge/BasketInnerWall/Type                   = "TsCylinder"
+s:Ge/BasketInnerWall/Parent                 = "BasketSpinAssembly"
+s:Ge/BasketInnerWall/Material               = "G4_Al"
+d:Ge/BasketInnerWall/RMin                   = 1.15 cm
+d:Ge/BasketInnerWall/RMax                   = 1.25 cm
+d:Ge/BasketInnerWall/HL                     = 1.25 cm
+d:Ge/BasketInnerWall/RotX                   = 90.0 deg
+s:Ge/BasketInnerWall/Color                  = "brown"
+s:Ge/BasketInnerWall/DrawingStyle           = "WireFrame"
+
+###############################################################################
+# 8C. BASKET OUTER WALL
+#
+# Thin aluminum shell (1 mm thickness) forming the outer structural wall of
+# the basket. Placed OUTSIDE the ND3 annulus (r > 2.50 cm) so it does not
+# overlap ND3Target (RMax = 2.50 cm).
+#
+# FIX (2026-06-08): Original RMin=2.45/RMax=2.55/HL=1.30 overlapped ND3Target
+# (shares r=2.45-2.50 cm) and the cryostat box (HL exceeded 1.25).
+# Corrected to RMin=2.50/RMax=2.60/HL=1.25: wall now lives entirely outside
+# the ND3 annulus, flush against ND3Target's outer surface.
+# Note: HeCryostatGas HLX/HLY = 4.0 cm comfortably contains RMax=2.60 cm.
+###############################################################################
+
+s:Ge/BasketOuterWall/Type                   = "TsCylinder"
+s:Ge/BasketOuterWall/Parent                 = "BasketSpinAssembly"
+s:Ge/BasketOuterWall/Material               = "G4_Al"
+d:Ge/BasketOuterWall/RMin                   = 2.50 cm
+d:Ge/BasketOuterWall/RMax                   = 2.60 cm
+d:Ge/BasketOuterWall/HL                     = 1.25 cm
+d:Ge/BasketOuterWall/RotX                   = 90.0 deg
+s:Ge/BasketOuterWall/Color                  = "brown"
+s:Ge/BasketOuterWall/DrawingStyle           = "WireFrame"
+
+###############################################################################
+# 9. BEAM RASTER FOOTPRINT
+#
+# The beam raster (2.5 x 2.0 cm2) is NOT represented as a physical geometry
+# component. Adding a physical volume would create geometry overlaps and
+# trigger TOPAS errors. Instead, the raster is defined in Section XI (Electron
+# Beam Source) as BeamPositionCutoffX and BeamPositionCutoffY parameters.
+###############################################################################
+
+###############################################################################
+# 10. WORLD-BOUNDARY ESCAPE DETECTOR PLANES
+#
+# Six thin planes (0.001 cm thick) positioned at World boundaries to score
+# particles exiting the simulation. Material is G4_Galactic (vacuum-like).
+# These planes are scored by PhaseSpace scorers to account for forward
+# transmission, backscatter, and lateral leakage energy.
+#
+# Coordinate convention:
+#   ZPlus: downstream (Z = +79 cm) -> forward beam exit
+#   ZMinus: upstream (Z = -79 cm) -> backscattered particles
+#   XPlus/XMinus, YPlus/YMinus: lateral boundaries
+###############################################################################
+
+# Downstream (forward) escape plane
+s:Ge/EscapePlaneZPlus/Type                  = "TsBox"
+s:Ge/EscapePlaneZPlus/Parent                = "World"
+s:Ge/EscapePlaneZPlus/Material              = "G4_Galactic"
+d:Ge/EscapePlaneZPlus/HLX                   = 59.0 cm
+d:Ge/EscapePlaneZPlus/HLY                   = 59.0 cm
+d:Ge/EscapePlaneZPlus/HLZ                   = 0.001 cm
+d:Ge/EscapePlaneZPlus/TransZ                = 79.0 cm
+s:Ge/EscapePlaneZPlus/Color                 = "grey"
+s:Ge/EscapePlaneZPlus/DrawingStyle          = "WireFrame"
+
+# Upstream (backscatter) escape plane
+s:Ge/EscapePlaneZMinus/Type                 = "TsBox"
+s:Ge/EscapePlaneZMinus/Parent               = "World"
+s:Ge/EscapePlaneZMinus/Material             = "G4_Galactic"
+d:Ge/EscapePlaneZMinus/HLX                  = 59.0 cm
+d:Ge/EscapePlaneZMinus/HLY                  = 59.0 cm
+d:Ge/EscapePlaneZMinus/HLZ                  = 0.001 cm
+d:Ge/EscapePlaneZMinus/TransZ               = -79.0 cm
+s:Ge/EscapePlaneZMinus/Color                = "grey"
+s:Ge/EscapePlaneZMinus/DrawingStyle         = "WireFrame"
+
+# Positive X lateral escape plane
+s:Ge/EscapePlaneXPlus/Type                  = "TsBox"
+s:Ge/EscapePlaneXPlus/Parent                = "World"
+s:Ge/EscapePlaneXPlus/Material              = "G4_Galactic"
+d:Ge/EscapePlaneXPlus/HLX                   = 0.001 cm
+d:Ge/EscapePlaneXPlus/HLY                   = 58.9 cm
+d:Ge/EscapePlaneXPlus/HLZ                   = 78.9 cm
+d:Ge/EscapePlaneXPlus/TransX                = 59.0 cm
+s:Ge/EscapePlaneXPlus/Color                 = "grey"
+s:Ge/EscapePlaneXPlus/DrawingStyle          = "WireFrame"
+
+# Negative X lateral escape plane
+s:Ge/EscapePlaneXMinus/Type                 = "TsBox"
+s:Ge/EscapePlaneXMinus/Parent               = "World"
+s:Ge/EscapePlaneXMinus/Material             = "G4_Galactic"
+d:Ge/EscapePlaneXMinus/HLX                  = 0.001 cm
+d:Ge/EscapePlaneXMinus/HLY                  = 58.9 cm
+d:Ge/EscapePlaneXMinus/HLZ                  = 78.9 cm
+d:Ge/EscapePlaneXMinus/TransX               = -59.0 cm
+s:Ge/EscapePlaneXMinus/Color                = "grey"
+s:Ge/EscapePlaneXMinus/DrawingStyle         = "WireFrame"
+
+# Positive Y lateral escape plane
+s:Ge/EscapePlaneYPlus/Type                  = "TsBox"
+s:Ge/EscapePlaneYPlus/Parent                = "World"
+s:Ge/EscapePlaneYPlus/Material              = "G4_Galactic"
+d:Ge/EscapePlaneYPlus/HLX                   = 58.8 cm
+d:Ge/EscapePlaneYPlus/HLY                   = 0.001 cm
+d:Ge/EscapePlaneYPlus/HLZ                   = 78.8 cm
+d:Ge/EscapePlaneYPlus/TransY                = 59.0 cm
+s:Ge/EscapePlaneYPlus/Color                 = "grey"
+s:Ge/EscapePlaneYPlus/DrawingStyle          = "WireFrame"
+
+# Negative Y lateral escape plane
+s:Ge/EscapePlaneYMinus/Type                 = "TsBox"
+s:Ge/EscapePlaneYMinus/Parent               = "World"
+s:Ge/EscapePlaneYMinus/Material             = "G4_Galactic"
+d:Ge/EscapePlaneYMinus/HLX                  = 58.8 cm
+d:Ge/EscapePlaneYMinus/HLY                  = 0.001 cm
+d:Ge/EscapePlaneYMinus/HLZ                  = 78.8 cm
+d:Ge/EscapePlaneYMinus/TransY               = -59.0 cm
+s:Ge/EscapePlaneYMinus/Color                = "grey"
+s:Ge/EscapePlaneYMinus/DrawingStyle         = "WireFrame"
+
+
+###############################################################################
+# ============================================================================ #
+# PART III: SCORERS                                                           #
+# (originally: scorers_UITF_ND3.txt)                                          #
+# ============================================================================ #
+#
+# Status-model outputs scored here:
+#   - Dose along target axis z
+#   - Dose along annular radius r
+#   - 2D R-Z dose map
+#   - 3D R-Phi-Z dose field
+#   - Temporal dose phases (first/second half of 3-hour irradiation)
+#   - Component energy deposition (ND3, windows, cryostat, basket walls)
+#   - Escaping forward/back/side particle energy at World boundaries (PHASE SPACE)
+#   - NUI computed from binned dose tables during post-processing
+#
+# PHASE-SPACE SCORERS ENABLED: YES
+# These are critical for energy balance closure and power accounting.
+# They record particles exiting the simulation world on 6 surfaces.
+###############################################################################
+
+###############################################################################
+# 17. ND3 TARGET DOSE FIELD (PRIMARY DOSE MEASUREMENTS)
+#
+# All ND3 dose and target-energy scorers use the same 25 x 72 x 50 bin grid as
+# the single ND3Target component.  TOPAS therefore writes one CSV table per
+# scored quantity with R/Phi/Z bin indices in rows and the scored value in the
+# last column.  The analysis collapses those rows into z, r, and R-Z products.
+# Do not generate one scorer or one CSV per R-Z point.
+###############################################################################
+
+# Dose integrated along Z (axial profile)
+s:Sc/Dose_Z/Quantity                       = "DoseToMedium"
+s:Sc/Dose_Z/Component                      = "ND3Target"
+s:Sc/Dose_Z/IfOutputFileAlreadyExists      = "Overwrite"
+s:Sc/Dose_Z/OutputFile                     = "Dose_Z"
+s:Sc/Dose_Z/OutputType                     = "csv"
+b:Sc/Dose_Z/OutputToConsole                = "False"
+b:Sc/Dose_Z/Active                         = "True"
+i:Sc/Dose_Z/RBins                          = 25
+i:Sc/Dose_Z/PhiBins                        = 72
+i:Sc/Dose_Z/ZBins                          = 50
+b:Sc/Dose_Z/ReportMeanAndVariance          = "True"
+
+# Dose integrated along R and Phi (radial profile)
+s:Sc/Dose_R/Quantity                       = "DoseToMedium"
+s:Sc/Dose_R/Component                      = "ND3Target"
+s:Sc/Dose_R/IfOutputFileAlreadyExists      = "Overwrite"
+s:Sc/Dose_R/OutputFile                     = "Dose_R"
+s:Sc/Dose_R/OutputType                     = "csv"
+b:Sc/Dose_R/OutputToConsole                = "False"
+b:Sc/Dose_R/Active                         = "True"
+i:Sc/Dose_R/RBins                          = 25
+i:Sc/Dose_R/PhiBins                        = 72
+i:Sc/Dose_R/ZBins                          = 50
+b:Sc/Dose_R/ReportMeanAndVariance          = "True"
+
+# Dose in 2D R-Z plane (integrated over Phi for azimuthal averaging)
+s:Sc/Dose_RZ/Quantity                      = "DoseToMedium"
+s:Sc/Dose_RZ/Component                     = "ND3Target"
+s:Sc/Dose_RZ/IfOutputFileAlreadyExists     = "Overwrite"
+s:Sc/Dose_RZ/OutputFile                    = "Dose_RZ"
+s:Sc/Dose_RZ/OutputType                    = "csv"
+b:Sc/Dose_RZ/OutputToConsole               = "False"
+b:Sc/Dose_RZ/Active                        = "True"
+i:Sc/Dose_RZ/RBins                         = 25
+i:Sc/Dose_RZ/PhiBins                       = 72
+i:Sc/Dose_RZ/ZBins                         = 50
+b:Sc/Dose_RZ/ReportMeanAndVariance         = "True"
+
+# Full 3D dose map (R-Phi-Z) for maximum resolution
+s:Sc/Dose_ND3_Binned3D/Quantity            = "DoseToMedium"
+s:Sc/Dose_ND3_Binned3D/Component           = "ND3Target"
+s:Sc/Dose_ND3_Binned3D/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/Dose_ND3_Binned3D/OutputFile          = "Dose_ND3_Binned3D"
+s:Sc/Dose_ND3_Binned3D/OutputType          = "csv"
+b:Sc/Dose_ND3_Binned3D/OutputToConsole     = "False"
+b:Sc/Dose_ND3_Binned3D/Active              = "True"
+i:Sc/Dose_ND3_Binned3D/RBins               = 25
+i:Sc/Dose_ND3_Binned3D/PhiBins             = 72
+i:Sc/Dose_ND3_Binned3D/ZBins               = 50
+b:Sc/Dose_ND3_Binned3D/ReportMeanAndVariance = "True"
+
+# Phase A: First half of irradiation (0 to 5400 s = 1.5 hours)
+# Tracks dose variation during the first half of the 3-hour window
+s:Sc/DoseAxial_PhaseA/Quantity             = "DoseToMedium"
+s:Sc/DoseAxial_PhaseA/Component            = "ND3Target"
+s:Sc/DoseAxial_PhaseA/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/DoseAxial_PhaseA/OutputFile           = "DoseAxial_PhaseA"
+s:Sc/DoseAxial_PhaseA/OutputType           = "csv"
+b:Sc/DoseAxial_PhaseA/OutputToConsole      = "False"
+b:Sc/DoseAxial_PhaseA/Active               = "True"
+i:Sc/DoseAxial_PhaseA/RBins                = 25
+i:Sc/DoseAxial_PhaseA/PhiBins              = 72
+i:Sc/DoseAxial_PhaseA/ZBins                = 50
+d:Sc/DoseAxial_PhaseA/StartTime            = 0.0 s
+d:Sc/DoseAxial_PhaseA/StopTime             = 5400.0 s
+
+# Phase B: Second half of irradiation (5400 to 10800 s = 1.5 to 3 hours)
+# Allows comparison of dose distribution between first and second halves
+# (useful for detecting any time-dependent or rotation-dependent variations)
+s:Sc/DoseAxial_PhaseB/Quantity             = "DoseToMedium"
+s:Sc/DoseAxial_PhaseB/Component            = "ND3Target"
+s:Sc/DoseAxial_PhaseB/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/DoseAxial_PhaseB/OutputFile           = "DoseAxial_PhaseB"
+s:Sc/DoseAxial_PhaseB/OutputType           = "csv"
+b:Sc/DoseAxial_PhaseB/OutputToConsole      = "False"
+b:Sc/DoseAxial_PhaseB/Active               = "True"
+i:Sc/DoseAxial_PhaseB/RBins                = 25
+i:Sc/DoseAxial_PhaseB/PhiBins              = 72
+i:Sc/DoseAxial_PhaseB/ZBins                = 50
+d:Sc/DoseAxial_PhaseB/StartTime            = 5400.0 s
+d:Sc/DoseAxial_PhaseB/StopTime             = 10800.0 s
+
+# Full irradiation dose (combined phases)
+s:Sc/DoseAxial_Combined/Quantity           = "DoseToMedium"
+s:Sc/DoseAxial_Combined/Component          = "ND3Target"
+s:Sc/DoseAxial_Combined/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/DoseAxial_Combined/OutputFile         = "DoseAxial_Combined"
+s:Sc/DoseAxial_Combined/OutputType         = "csv"
+b:Sc/DoseAxial_Combined/OutputToConsole    = "False"
+b:Sc/DoseAxial_Combined/Active             = "True"
+i:Sc/DoseAxial_Combined/RBins              = 25
+i:Sc/DoseAxial_Combined/PhiBins            = 72
+i:Sc/DoseAxial_Combined/ZBins              = 50
+b:Sc/DoseAxial_Combined/ReportMeanAndVariance = "True"
+
+###############################################################################
+# 18. ENERGY-DEPOSITION CLOSURE INSIDE MODELED COMPONENTS
+#
+# The status talk (2026-06-03) specifies:
+#   - 8 MeV incident electron energy
+#   - ~4.4 MeV mean energy loss in ND3
+#   - ~44 W power at 10 uA beam current
+#
+# These scorers tally energy deposition in each component and are used by
+# analysis/provenance scripts to:
+#   1. Verify energy conservation (sum of all E_dep components + escaping
+#      particles should equal incident beam energy per history)
+#   2. Calculate dose scaling factors from MC to actual operating conditions
+#   3. Account for losses in windows, cryostat gas, coolant, basket walls, etc.
+#
+# Escaping particle energy is handled separately by PhaseSpace scorers
+# at the World boundary (Section 19 below).
+###############################################################################
+
+# Energy deposition in ND3 target (primary dose region)
+s:Sc/EnergyDep_ND3/Quantity                = "EnergyDeposit"
+s:Sc/EnergyDep_ND3/Component               = "ND3Target"
+s:Sc/EnergyDep_ND3/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_ND3/OutputFile              = "EnergyDep_ND3"
+s:Sc/EnergyDep_ND3/OutputType              = "csv"
+b:Sc/EnergyDep_ND3/OutputToConsole         = "False"
+b:Sc/EnergyDep_ND3/Active                  = "True"
+i:Sc/EnergyDep_ND3/RBins                   = 25
+i:Sc/EnergyDep_ND3/PhiBins                 = 72
+i:Sc/EnergyDep_ND3/ZBins                   = 50
+
+# Energy deposition in upstream cryostat window
+s:Sc/EnergyDep_UpstreamThinWindow/Quantity = "EnergyDeposit"
+s:Sc/EnergyDep_UpstreamThinWindow/Component = "UpstreamThinWindow"
+s:Sc/EnergyDep_UpstreamThinWindow/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_UpstreamThinWindow/OutputFile = "EnergyDep_UpstreamThinWindow"
+s:Sc/EnergyDep_UpstreamThinWindow/OutputType = "csv"
+b:Sc/EnergyDep_UpstreamThinWindow/OutputToConsole = "False"
+b:Sc/EnergyDep_UpstreamThinWindow/Active  = "True"
+
+# Energy deposition in downstream cryostat window
+s:Sc/EnergyDep_DownstreamThinWindow/Quantity = "EnergyDeposit"
+s:Sc/EnergyDep_DownstreamThinWindow/Component = "DownstreamThinWindow"
+s:Sc/EnergyDep_DownstreamThinWindow/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_DownstreamThinWindow/OutputFile = "EnergyDep_DownstreamThinWindow"
+s:Sc/EnergyDep_DownstreamThinWindow/OutputType = "csv"
+b:Sc/EnergyDep_DownstreamThinWindow/OutputToConsole = "False"
+b:Sc/EnergyDep_DownstreamThinWindow/Active = "True"
+
+# Energy deposition in helium gas surrounding the target
+s:Sc/EnergyDep_HeCryostatGas/Quantity     = "EnergyDeposit"
+s:Sc/EnergyDep_HeCryostatGas/Component    = "HeCryostatGas"
+s:Sc/EnergyDep_HeCryostatGas/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_HeCryostatGas/OutputFile   = "EnergyDep_HeCryostatGas"
+s:Sc/EnergyDep_HeCryostatGas/OutputType   = "csv"
+b:Sc/EnergyDep_HeCryostatGas/OutputToConsole = "False"
+b:Sc/EnergyDep_HeCryostatGas/Active       = "True"
+
+# Energy deposition in central helium coolant core
+s:Sc/EnergyDep_HeliumCoolantCore/Quantity = "EnergyDeposit"
+s:Sc/EnergyDep_HeliumCoolantCore/Component = "HeliumCoolantCore"
+s:Sc/EnergyDep_HeliumCoolantCore/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_HeliumCoolantCore/OutputFile = "EnergyDep_HeliumCoolantCore"
+s:Sc/EnergyDep_HeliumCoolantCore/OutputType = "csv"
+b:Sc/EnergyDep_HeliumCoolantCore/OutputToConsole = "False"
+b:Sc/EnergyDep_HeliumCoolantCore/Active   = "True"
+
+# Energy deposition in basket inner wall (thin aluminum shell at r ~ 1.25 cm)
+s:Sc/EnergyDep_BasketInnerWall/Quantity   = "EnergyDeposit"
+s:Sc/EnergyDep_BasketInnerWall/Component  = "BasketInnerWall"
+s:Sc/EnergyDep_BasketInnerWall/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_BasketInnerWall/OutputFile = "EnergyDep_BasketInnerWall"
+s:Sc/EnergyDep_BasketInnerWall/OutputType = "csv"
+b:Sc/EnergyDep_BasketInnerWall/OutputToConsole = "False"
+b:Sc/EnergyDep_BasketInnerWall/Active     = "True"
+
+# Energy deposition in basket outer wall (thin aluminum shell at r ~ 2.50 cm)
+s:Sc/EnergyDep_BasketOuterWall/Quantity   = "EnergyDeposit"
+s:Sc/EnergyDep_BasketOuterWall/Component  = "BasketOuterWall"
+s:Sc/EnergyDep_BasketOuterWall/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyDep_BasketOuterWall/OutputFile = "EnergyDep_BasketOuterWall"
+s:Sc/EnergyDep_BasketOuterWall/OutputType = "csv"
+b:Sc/EnergyDep_BasketOuterWall/OutputToConsole = "False"
+b:Sc/EnergyDep_BasketOuterWall/Active     = "True"
+
+###############################################################################
+# 19. ESCAPING-POWER AND BACKSCATTER ACCOUNTING (PHASE-SPACE SCORERS)
+#
+# ** CRITICAL FOR ENERGY BALANCE CLOSURE **
+#
+# Phase-space scorers at World boundaries record particles exiting the
+# simulation. Each scorer writes an ASCII file with particle type, energy,
+# position, direction, creation process, and tracking info. The analysis
+# sums Energy x Weight by surface and particle type to account for:
+#
+#   - Forward escape (ZPlus): transmitted beam particles exiting downstream
+#   - Backscatter (ZMinus): electrons/photons/etc. backscattered upstream
+#   - Lateral leakage (X/Y surfaces): side-scattered particles
+#
+# This explicit accounting allows the energy balance:
+#
+#   E_incident = E_ND3 + E_windows + E_gas + E_coolant + E_basket +
+#                E_forward + E_backscatter + E_lateral + (uncertainty)
+#
+# Without these scorers, ~3.6 MeV per electron (the transmission + scatter)
+# becomes a hidden "unaccounted power" residual_physically meaningless.
+#
+# Coordinate convention (World reference frame):
+#   +Z downstream (beam direction), +Y vertical (rotation axis)
+#   ZPlus  = downstream boundary -> forward exit
+#   ZMinus = upstream boundary -> backscatter exit
+#   XPlus/XMinus, YPlus/YMinus = lateral boundaries
+###############################################################################
+
+# Forward (downstream) escape phase-space
+s:Sc/PhaseSpace_Escape_ZPlus/Quantity                 = "PhaseSpace"
+b:Sc/PhaseSpace_Escape_ZPlus/OutputToConsole          = "False"
+s:Sc/PhaseSpace_Escape_ZPlus/Surface                  = "EscapePlaneZPlus/ZMinusSurface"
+s:Sc/PhaseSpace_Escape_ZPlus/OnlyIncludeParticlesGoing = "In"
+s:Sc/PhaseSpace_Escape_ZPlus/OutputType               = "ASCII"
+s:Sc/PhaseSpace_Escape_ZPlus/OutputFile               = "PhaseSpace_Escape_ZPlus"
+i:Sc/PhaseSpace_Escape_ZPlus/OutputBufferSize         = 10000
+b:Sc/PhaseSpace_Escape_ZPlus/IncludeEventID           = "True"
+b:Sc/PhaseSpace_Escape_ZPlus/IncludeTrackID           = "True"
+b:Sc/PhaseSpace_Escape_ZPlus/IncludeParentID          = "True"
+b:Sc/PhaseSpace_Escape_ZPlus/IncludeCreatorProcess    = "True"
+b:Sc/PhaseSpace_Escape_ZPlus/IncludeCharge            = "True"
+s:Sc/PhaseSpace_Escape_ZPlus/IfOutputFileAlreadyExists = "Overwrite"
+b:Sc/PhaseSpace_Escape_ZPlus/Active                   = "True"
+
+# Backscatter (upstream) escape phase-space
+s:Sc/PhaseSpace_Escape_ZMinus/Quantity                = "PhaseSpace"
+b:Sc/PhaseSpace_Escape_ZMinus/OutputToConsole         = "False"
+s:Sc/PhaseSpace_Escape_ZMinus/Surface                 = "EscapePlaneZMinus/ZPlusSurface"
+s:Sc/PhaseSpace_Escape_ZMinus/OnlyIncludeParticlesGoing = "In"
+s:Sc/PhaseSpace_Escape_ZMinus/OutputType              = "ASCII"
+s:Sc/PhaseSpace_Escape_ZMinus/OutputFile              = "PhaseSpace_Escape_ZMinus"
+i:Sc/PhaseSpace_Escape_ZMinus/OutputBufferSize        = 10000
+b:Sc/PhaseSpace_Escape_ZMinus/IncludeEventID          = "True"
+b:Sc/PhaseSpace_Escape_ZMinus/IncludeTrackID          = "True"
+b:Sc/PhaseSpace_Escape_ZMinus/IncludeParentID         = "True"
+b:Sc/PhaseSpace_Escape_ZMinus/IncludeCreatorProcess   = "True"
+b:Sc/PhaseSpace_Escape_ZMinus/IncludeCharge           = "True"
+s:Sc/PhaseSpace_Escape_ZMinus/IfOutputFileAlreadyExists = "Overwrite"
+b:Sc/PhaseSpace_Escape_ZMinus/Active                  = "True"
+
+# Positive X lateral escape phase-space
+s:Sc/PhaseSpace_Escape_XPlus/Quantity                 = "PhaseSpace"
+b:Sc/PhaseSpace_Escape_XPlus/OutputToConsole          = "False"
+s:Sc/PhaseSpace_Escape_XPlus/Surface                  = "EscapePlaneXPlus/XMinusSurface"
+s:Sc/PhaseSpace_Escape_XPlus/OnlyIncludeParticlesGoing = "In"
+s:Sc/PhaseSpace_Escape_XPlus/OutputType               = "ASCII"
+s:Sc/PhaseSpace_Escape_XPlus/OutputFile               = "PhaseSpace_Escape_XPlus"
+i:Sc/PhaseSpace_Escape_XPlus/OutputBufferSize         = 10000
+b:Sc/PhaseSpace_Escape_XPlus/IncludeEventID           = "True"
+b:Sc/PhaseSpace_Escape_XPlus/IncludeTrackID           = "True"
+b:Sc/PhaseSpace_Escape_XPlus/IncludeParentID          = "True"
+b:Sc/PhaseSpace_Escape_XPlus/IncludeCreatorProcess    = "True"
+b:Sc/PhaseSpace_Escape_XPlus/IncludeCharge            = "True"
+s:Sc/PhaseSpace_Escape_XPlus/IfOutputFileAlreadyExists = "Overwrite"
+b:Sc/PhaseSpace_Escape_XPlus/Active                   = "True"
+
+# Negative X lateral escape phase-space
+s:Sc/PhaseSpace_Escape_XMinus/Quantity                = "PhaseSpace"
+b:Sc/PhaseSpace_Escape_XMinus/OutputToConsole         = "False"
+s:Sc/PhaseSpace_Escape_XMinus/Surface                 = "EscapePlaneXMinus/XPlusSurface"
+s:Sc/PhaseSpace_Escape_XMinus/OnlyIncludeParticlesGoing = "In"
+s:Sc/PhaseSpace_Escape_XMinus/OutputType              = "ASCII"
+s:Sc/PhaseSpace_Escape_XMinus/OutputFile              = "PhaseSpace_Escape_XMinus"
+i:Sc/PhaseSpace_Escape_XMinus/OutputBufferSize        = 10000
+b:Sc/PhaseSpace_Escape_XMinus/IncludeEventID          = "True"
+b:Sc/PhaseSpace_Escape_XMinus/IncludeTrackID          = "True"
+b:Sc/PhaseSpace_Escape_XMinus/IncludeParentID         = "True"
+b:Sc/PhaseSpace_Escape_XMinus/IncludeCreatorProcess   = "True"
+b:Sc/PhaseSpace_Escape_XMinus/IncludeCharge           = "True"
+s:Sc/PhaseSpace_Escape_XMinus/IfOutputFileAlreadyExists = "Overwrite"
+b:Sc/PhaseSpace_Escape_XMinus/Active                  = "True"
+
+# Positive Y lateral escape phase-space
+s:Sc/PhaseSpace_Escape_YPlus/Quantity                 = "PhaseSpace"
+b:Sc/PhaseSpace_Escape_YPlus/OutputToConsole          = "False"
+s:Sc/PhaseSpace_Escape_YPlus/Surface                  = "EscapePlaneYPlus/YMinusSurface"
+s:Sc/PhaseSpace_Escape_YPlus/OnlyIncludeParticlesGoing = "In"
+s:Sc/PhaseSpace_Escape_YPlus/OutputType               = "ASCII"
+s:Sc/PhaseSpace_Escape_YPlus/OutputFile               = "PhaseSpace_Escape_YPlus"
+i:Sc/PhaseSpace_Escape_YPlus/OutputBufferSize         = 10000
+b:Sc/PhaseSpace_Escape_YPlus/IncludeEventID           = "True"
+b:Sc/PhaseSpace_Escape_YPlus/IncludeTrackID           = "True"
+b:Sc/PhaseSpace_Escape_YPlus/IncludeParentID          = "True"
+b:Sc/PhaseSpace_Escape_YPlus/IncludeCreatorProcess    = "True"
+b:Sc/PhaseSpace_Escape_YPlus/IncludeCharge            = "True"
+s:Sc/PhaseSpace_Escape_YPlus/IfOutputFileAlreadyExists = "Overwrite"
+b:Sc/PhaseSpace_Escape_YPlus/Active                   = "True"
+
+# Negative Y lateral escape phase-space
+s:Sc/PhaseSpace_Escape_YMinus/Quantity                = "PhaseSpace"
+b:Sc/PhaseSpace_Escape_YMinus/OutputToConsole         = "False"
+s:Sc/PhaseSpace_Escape_YMinus/Surface                 = "EscapePlaneYMinus/YPlusSurface"
+s:Sc/PhaseSpace_Escape_YMinus/OnlyIncludeParticlesGoing = "In"
+s:Sc/PhaseSpace_Escape_YMinus/OutputType              = "ASCII"
+s:Sc/PhaseSpace_Escape_YMinus/OutputFile              = "PhaseSpace_Escape_YMinus"
+i:Sc/PhaseSpace_Escape_YMinus/OutputBufferSize        = 10000
+b:Sc/PhaseSpace_Escape_YMinus/IncludeEventID          = "True"
+b:Sc/PhaseSpace_Escape_YMinus/IncludeTrackID          = "True"
+b:Sc/PhaseSpace_Escape_YMinus/IncludeParentID         = "True"
+b:Sc/PhaseSpace_Escape_YMinus/IncludeCreatorProcess   = "True"
+b:Sc/PhaseSpace_Escape_YMinus/IncludeCharge           = "True"
+s:Sc/PhaseSpace_Escape_YMinus/IfOutputFileAlreadyExists = "Overwrite"
+b:Sc/PhaseSpace_Escape_YMinus/Active                  = "True"
+
+###############################################################################
+# SCORER SUMMARY _ EXPECTED OUTPUT FILES
+#
+# PRIMARY CSV OUTPUTS:
+#   - Dose_Z.csv, Dose_R.csv, Dose_RZ.csv, Dose_ND3_Binned3D.csv
+#   - DoseAxial_PhaseA.csv, DoseAxial_PhaseB.csv, DoseAxial_Combined.csv
+#   - EnergyDep_ND3.csv
+#   - EnergyDep_UpstreamThinWindow.csv, EnergyDep_DownstreamThinWindow.csv
+#   - EnergyDep_HeCryostatGas.csv, EnergyDep_HeliumCoolantCore.csv
+#   - EnergyDep_BasketInnerWall.csv, EnergyDep_BasketOuterWall.csv
+#
+# PHASE-SPACE ASCII OUTPUTS (one per surface):
+#   - PhaseSpace_Escape_ZPlus.txt   (forward transmission)
+#   - PhaseSpace_Escape_ZMinus.txt  (backscatter)
+#   - PhaseSpace_Escape_XPlus.txt, PhaseSpace_Escape_XMinus.txt
+#   - PhaseSpace_Escape_YPlus.txt,  PhaseSpace_Escape_YMinus.txt
+#
+# POST-PROCESSING PRODUCTS (generated by analysis scripts):
+#   - UITF_AnalysisSummary.csv      (all metrics, single-row per run)
+#   - UITF_PowerClosure.csv/.png    (energy balance verification)
+#   - UITF_VerticalDoseProfile.csv, UITF_RadialDoseProfile.csv
+#   - UITF_AzimuthalDoseProfile.csv, UITF_RZ_DoseMap.csv
+#   - UITF_Dose_*.png               (matplotlib plots, if available)
+###############################################################################
+
+
+###############################################################################
+# ============================================================================ #
+# PART IV: RUN CONTROL AND SIMULATION DRIVER                                  #
+# (originally: simulation_UITF_ND3.txt)                                       #
+# ============================================================================ #
+###############################################################################
+
+###############################################################################
+# 11. CONFIGURABLE PARAMETERS
+###############################################################################
+
+# Raster dimensions: full width x height (status talk 2026-06-03)
+d:Raster/Width                              = 2.5 cm
+d:Raster/Height                             = 2.0 cm
+
+# Reference beam current for MC-to-physical scaling
+# FIX (2026-06-08): TOPAS only accepts base SI unit A (ampere). uA is not
+# recognized. 1 uA expressed in amps = 1e-6 A; 10 uA = 1e-5 A.
+#
+# *** SET CURRENT BELOW TO MATCH THE RUN CONDITION BEFORE EXECUTING ***
+#   87 K irradiation:  10 uA -> 1.0e-5 A   <- ACTIVE
+#    2 K irradiation:   1 uA -> 1.0e-6 A   <- COMMENT IN FOR 2K RUN
+d:BeamRef/Current                           = 1.0e-5 A
+
+# Monte Carlo histories for statistical precision (10M ~ 1% uncertainty)
+i:MC/NumberOfHistories                      = 1000000000
+
+# Random number seed (42 for reproducibility; set to 0 for random seed)
+i:MC/RandomSeed                             = 42
+
+###############################################################################
+# 12. RUN CONTROL
+###############################################################################
+
+# Threading and I/O
+i:Ts/NumberOfThreads                        = 60
+i:Ts/Seed                                   = MC/RandomSeed
+b:Ts/PauseBeforeQuit                        = "False"
+b:Ts/DumpParameters                         = "False"
+b:Ts/ShowCPUTime                            = "True"
+
+# Verbosity (0 = silent, increasing levels for detail)
+i:Ts/ParameterSwitchVerbosity               = 0
+i:Ts/TrackingVerbosity                      = 0
+i:Ts/EventVerbosity                         = 0
+i:Ts/RunVerbosity                           = 0
+
+# Progress reporting
+i:Ts/ShowHistoryCountAtInterval             = 20000
+
+# Error reporting threshold
+# FIX (2026-06-09): Set to 0 to suppress parameterization error spam.
+# The unscored energy per hit (~3.19e-6 MeV) is negligible. Root cause is
+# addressed by Ge/ND3Target/MaxStepSize = 0.005 cm above. Set to a small
+# positive integer (e.g. 5) temporarily if you want to confirm errors
+# have been eliminated during a test run.
+i:Ts/ParameterizationErrorMaxReports        = 0
+
+###############################################################################
+# 13. ELECTROMAGNETIC PHYSICS
+###############################################################################
+
+# Physics modules: g4em-standard_opt4 for EM interactions at 7 MeV
+# g4decay for radioactive processes (unused in this ND3 scenario)
+sv:Ph/Default/Modules                       = 2
+  "g4em-standard_opt4"
+  "g4decay"
+
+# Production cuts (1 mm balances accuracy vs computation time at 7 MeV)
+d:Ph/Default/CutForElectron                 = 0.001 cm
+d:Ph/Default/CutForPositron                 = 0.001 cm
+d:Ph/Default/CutForGamma                    = 0.001 cm
+d:Ph/Default/CutForProton                   = 0.001 cm
+
+# Maximum step size for spatial resolution in target
+# Global fallback; ND3Target overrides this with 0.005 cm (see geometry section).
+d:Ph/Default/MaxStepSize                    = 0.025 cm
+
+###############################################################################
+# 14. TIME AND ROTATION
+###############################################################################
+
+# Total irradiation time: 10800 s = 3 hours
+d:Tf/TotalRunTime/Value                     = 10800.0 s
+
+# Single continuous time segment (basket rotates throughout)
+i:Tf/NumberOfSequentialTimes                = 1
+d:Tf/TimelineStart                          = 0.0 s
+d:Tf/TimelineEnd                            = 10800.0 s
+
+# Basket rotation: 6 deg/s -> 360 deg per 60 s for uniform azimuthal sampling
+s:Tf/BasketRotation/Function                = "Linear deg"
+d:Tf/BasketRotation/Rate                    = 6.0 deg/s
+d:Tf/BasketRotation/StartValue              = 0.0 deg
+d:Tf/BasketRotation/RepetitionInterval      = 60.0 s
+d:Ge/BasketSpinAssembly/RotY                = Tf/BasketRotation/Value deg
+
+###############################################################################
+# 15. ELECTRON BEAM SOURCE
+###############################################################################
+
+# Beam reference position (20 cm upstream of target center)
+s:Ge/BeamPosition/Type                      = "Group"
+s:Ge/BeamPosition/Parent                    = "World"
+d:Ge/BeamPosition/TransX                    = 0.0 cm
+d:Ge/BeamPosition/TransY                    = 0.0 cm
+d:Ge/BeamPosition/TransZ                    = -20.0 cm
+d:Ge/BeamPosition/RotX                      = 0.0 deg
+d:Ge/BeamPosition/RotY                      = 0.0 deg
+d:Ge/BeamPosition/RotZ                      = 0.0 deg
+
+# Source definition
+s:So/BeamSource/Type                        = "Beam"
+s:So/BeamSource/Component                   = "BeamPosition"
+s:So/BeamSource/BeamParticle                = "e-"
+
+# Beam energy: 7 MeV (conservative operating value; updated 2026-06-09)
+d:So/BeamSource/BeamEnergy                  = 7.0 MeV
+
+# Monochromatic beam (no energy spread)
+u:So/BeamSource/BeamEnergySpread            = 0.0
+
+# Raster definition: rectangular flat distribution
+s:So/BeamSource/BeamPositionDistribution    = "Flat"
+s:So/BeamSource/BeamPositionCutoffShape     = "Rectangle"
+
+# Half-widths from raster dimensions (Section 11): Width/2 = 1.25 cm, Height/2 = 1.00 cm
+# FIX (2026-06-08): TOPAS does not support inline division in parameter
+# expressions (e.g. "Raster/Width / 2.0 cm"). Values are written explicitly.
+d:So/BeamSource/BeamPositionCutoffX         = 1.25 cm
+d:So/BeamSource/BeamPositionCutoffY         = 1.00 cm
+
+# Collimated beam (no angular divergence)
+s:So/BeamSource/BeamAngularDistribution     = "None"
+
+# History count
+i:So/BeamSource/NumberOfHistoriesInRun      = MC/NumberOfHistories
+
+###############################################################################
+# 16. OUTPUT
+###############################################################################
+
+s:Ts/OutputPath                             = "./output"
+b:Ts/AppendTagToOutputFilename              = "False"
+
+###############################################################################
+# END OF FILE: UITF_ND3_combined.txt
+###############################################################################

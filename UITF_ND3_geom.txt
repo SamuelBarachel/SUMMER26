@@ -1,0 +1,345 @@
+###############################################################################
+# TOPAS GEOMETRY VISUALIZATION FILE: JLAB UITF ND3 IRRADIATION MODEL
+#
+# Purpose:    OpenGL/Qt visualization of the experimental setup.
+#             No scorers. No beam source. No physics list.
+#             Run with: topas UITF_ND3_geometry_vis.txt
+#
+# Derived from: UITF_ND3_updated.txt (2026-06-09)
+# Reference:    Chris Keith, "Status of Irradiations at the Upgraded
+#               Injector Test Facility", b1/Azz Collab. Meeting, 2026-06-03
+#
+# Coordinate Convention:
+#   +Z  = beam direction (left to right in default OpenGL view)
+#   +Y  = vertical (rotation axis of basket)
+#   +X  = horizontal transverse
+#
+# Color legend:
+#   blue      = ND3 target (solid, annular)
+#   cyan      = He coolant core (inner bore)
+#   brown     = Al basket inner and outer walls (wireframe)
+#   grey      = Al cryostat windows (solid)
+#   lightblue = He cryostat gas envelope (wireframe)
+#   yellow    = beam raster footprint marker (wireframe box)
+#   white     = beam source position marker
+###############################################################################
+
+
+###############################################################################
+# SECTION 1: MATERIAL DEFINITIONS (minimal set for visualization)
+###############################################################################
+
+# -- Deuterium isotope --
+s:El/Deuterium/Symbol                   = "D"
+sv:El/Deuterium/IsotopeNames            = 1 "D2"
+uv:El/Deuterium/IsotopeAbundances       = 1 100.0
+i:Is/D2/Z                               = 1
+i:Is/D2/N                               = 2
+d:Is/D2/A                               = 2.014101778 g/mole
+
+# -- Nitrogen-14 isotope --
+s:El/NitrogenEl/Symbol                  = "N"
+sv:El/NitrogenEl/IsotopeNames           = 1 "N14"
+uv:El/NitrogenEl/IsotopeAbundances      = 1 100.0
+i:Is/N14/Z                              = 7
+i:Is/N14/N                              = 14
+d:Is/N14/A                              = 14.003074 g/mole
+
+# -- Solid ND3 --
+sv:Ma/SolidND3_UITF/Components          = 2 "NitrogenEl" "Deuterium"
+uv:Ma/SolidND3_UITF/Fractions           = 2 0.6986 0.3014
+d:Ma/SolidND3_UITF/Density              = 0.5946 g/cm3
+d:Ma/SolidND3_UITF/MeanExcitationEnergy = 53.0 eV
+s:Ma/SolidND3_UITF/DefaultColor         = "blue"
+
+# -- Helium-4 isotope --
+s:El/HeliumEl/Symbol                    = "He"
+sv:El/HeliumEl/IsotopeNames             = 1 "He4"
+uv:El/HeliumEl/IsotopeAbundances        = 1 100.0
+i:Is/He4/Z                              = 2
+i:Is/He4/N                              = 4
+d:Is/He4/A                              = 4.002602 g/mole
+
+# -- Helium coolant (87 K gas density; swap to 0.1620 for 2 K run) --
+sv:Ma/HeliumGas_UITF/Components         = 1 "HeliumEl"
+uv:Ma/HeliumGas_UITF/Fractions          = 1 1.0
+d:Ma/HeliumGas_UITF/Density             = 5.601e-4 g/cm3
+s:Ma/HeliumGas_UITF/DefaultColor        = "cyan"
+
+# -- Aluminum window material --
+s:El/AluminumEl/Symbol                  = "Al"
+sv:El/AluminumEl/IsotopeNames           = 1 "Al27"
+uv:El/AluminumEl/IsotopeAbundances      = 1 100.0
+i:Is/Al27/Z                             = 13
+i:Is/Al27/N                             = 27
+d:Is/Al27/A                             = 26.981539 g/mole
+
+sv:Ma/UITFWindow_Default/Components     = 1 "AluminumEl"
+uv:Ma/UITFWindow_Default/Fractions      = 1 1.0
+d:Ma/UITFWindow_Default/Density         = 2.70 g/cm3
+s:Ma/UITFWindow_Default/DefaultColor    = "grey"
+
+
+###############################################################################
+# SECTION 2: WORLD
+#
+# Large air box — invisible in OpenGL, just bounds the scene.
+# Full world: +/-60 cm (X,Y), +/-80 cm (Z).
+# The beam source sits at Z = -20 cm; escape planes at +/-79 cm.
+###############################################################################
+
+s:Ge/World/Type                         = "TsBox"
+s:Ge/World/Material                     = "G4_AIR"
+d:Ge/World/HLX                          = 60.0 cm
+d:Ge/World/HLY                          = 60.0 cm
+d:Ge/World/HLZ                          = 80.0 cm
+b:Ge/World/Invisible                    = "True"
+
+
+###############################################################################
+# SECTION 4: HELIUM CRYOSTAT ENVELOPE
+#
+# Box of He gas surrounding the target assembly.
+# Dimensions: ±4 cm (X,Y), ±3 cm (Z), centred at origin.
+# Rendered as a blue wireframe so internal components are visible.
+###############################################################################
+
+s:Ge/HeCryostatGas/Type                 = "TsBox"
+s:Ge/HeCryostatGas/Parent               = "World"
+s:Ge/HeCryostatGas/Material             = "HeliumGas_UITF"
+d:Ge/HeCryostatGas/HLX                  = 4.0 cm
+d:Ge/HeCryostatGas/HLY                  = 4.0 cm
+d:Ge/HeCryostatGas/HLZ                  = 3.0 cm
+d:Ge/HeCryostatGas/TransX               = 0.0 cm
+d:Ge/HeCryostatGas/TransY               = 0.0 cm
+d:Ge/HeCryostatGas/TransZ               = 0.0 cm
+s:Ge/HeCryostatGas/Color                = "lightblue"
+s:Ge/HeCryostatGas/DrawingStyle         = "WireFrame"
+
+
+###############################################################################
+# SECTION 5: CRYOSTAT WINDOWS
+#
+# Two 0.1 mm-thick Al windows at Z = ±3.005 cm (just outside cryostat faces).
+# Rendered solid grey so they are clearly visible as beam entry/exit planes.
+# XY half-widths: 2.0 cm (covers the 2.5×2.0 cm raster footprint).
+###############################################################################
+
+# Upstream window (beam enters here)
+s:Ge/UpstreamThinWindow/Type            = "TsBox"
+s:Ge/UpstreamThinWindow/Parent          = "World"
+s:Ge/UpstreamThinWindow/Material        = "UITFWindow_Default"
+d:Ge/UpstreamThinWindow/HLX            = 2.0 cm
+d:Ge/UpstreamThinWindow/HLY            = 2.0 cm
+d:Ge/UpstreamThinWindow/HLZ            = 0.005 cm
+d:Ge/UpstreamThinWindow/TransZ         = -3.005 cm
+s:Ge/UpstreamThinWindow/Color          = "grey"
+s:Ge/UpstreamThinWindow/DrawingStyle   = "Solid"
+
+# Downstream window (beam exits here)
+s:Ge/DownstreamThinWindow/Type          = "TsBox"
+s:Ge/DownstreamThinWindow/Parent        = "World"
+s:Ge/DownstreamThinWindow/Material      = "UITFWindow_Default"
+d:Ge/DownstreamThinWindow/HLX          = 2.0 cm
+d:Ge/DownstreamThinWindow/HLY          = 2.0 cm
+d:Ge/DownstreamThinWindow/HLZ          = 0.005 cm
+d:Ge/DownstreamThinWindow/TransZ       = 3.005 cm
+s:Ge/DownstreamThinWindow/Color        = "grey"
+s:Ge/DownstreamThinWindow/DrawingStyle = "Solid"
+
+
+###############################################################################
+# SECTION 6: ROTATING BASKET ASSEMBLY (GROUP)
+#
+# Logical group — all target sub-components are children of this node.
+# In a full simulation this group has a time-dependent RotY; here it is
+# frozen at 0 deg for static visualization.
+# Parent: HeCryostatGas (centred at origin).
+###############################################################################
+
+s:Ge/BasketSpinAssembly/Type            = "Group"
+s:Ge/BasketSpinAssembly/Parent          = "HeCryostatGas"
+d:Ge/BasketSpinAssembly/TransX          = 0.0 cm
+d:Ge/BasketSpinAssembly/TransY          = 0.0 cm
+d:Ge/BasketSpinAssembly/TransZ          = 0.0 cm
+d:Ge/BasketSpinAssembly/RotX           = 0.0 deg
+d:Ge/BasketSpinAssembly/RotY           = 0.0 deg
+d:Ge/BasketSpinAssembly/RotZ           = 0.0 deg
+
+
+###############################################################################
+# SECTION 7: ANNULAR ND3 TARGET
+#
+# Annular cylinder (TsCylinder), axis along +Y (RotX = 90 deg).
+# Radii: RMin = 1.25 cm, RMax = 2.50 cm.
+# Half-length: HL = 1.25 cm  => total height 2.5 cm.
+# Volume: pi*(2.50^2 - 1.25^2)*2.5 = 36.82 cm^3 (~37 cc, ~22 g at 0.5946 g/cm^3).
+# Rendered SOLID blue — primary visual element.
+###############################################################################
+
+s:Ge/ND3Target/Type                     = "TsCylinder"
+s:Ge/ND3Target/Parent                   = "BasketSpinAssembly"
+s:Ge/ND3Target/Material                 = "SolidND3_UITF"
+d:Ge/ND3Target/RMin                     = 1.25 cm
+d:Ge/ND3Target/RMax                     = 2.50 cm
+d:Ge/ND3Target/HL                       = 1.25 cm
+d:Ge/ND3Target/RotX                     = 90.0 deg
+s:Ge/ND3Target/Color                    = "blue"
+s:Ge/ND3Target/DrawingStyle             = "Solid"
+# Suppress parameterization noise if TOPAS complains during view startup
+d:Ge/ND3Target/MaxStepSize              = 0.005 cm
+
+
+###############################################################################
+# SECTION 8: CENTRAL HELIUM COOLANT CORE
+#
+# Solid cylinder filling the inner bore of the basket (r = 0 to 1.15 cm).
+# (RMax reduced to 1.15 cm to leave room for the inner Al wall at 1.15-1.25 cm.)
+# HL = 1.25 cm, RotX = 90 deg (axis along +Y).
+# Rendered wireframe cyan so the ND3 behind it is still visible.
+###############################################################################
+
+s:Ge/HeliumCoolantCore/Type             = "TsCylinder"
+s:Ge/HeliumCoolantCore/Parent           = "BasketSpinAssembly"
+s:Ge/HeliumCoolantCore/Material         = "HeliumGas_UITF"
+d:Ge/HeliumCoolantCore/RMin             = 0.0 cm
+d:Ge/HeliumCoolantCore/RMax             = 1.15 cm
+d:Ge/HeliumCoolantCore/HL               = 1.25 cm
+d:Ge/HeliumCoolantCore/RotX             = 90.0 deg
+s:Ge/HeliumCoolantCore/Color            = "cyan"
+s:Ge/HeliumCoolantCore/DrawingStyle     = "WireFrame"
+
+
+###############################################################################
+# SECTION 9: BASKET INNER WALL (Al)
+#
+# 1 mm Al shell between the He coolant and the ND3 inner bore.
+# r = 1.15 cm to 1.25 cm, HL = 1.25 cm, RotX = 90 deg.
+# Rendered wireframe brown.
+###############################################################################
+
+s:Ge/BasketInnerWall/Type               = "TsCylinder"
+s:Ge/BasketInnerWall/Parent             = "BasketSpinAssembly"
+s:Ge/BasketInnerWall/Material           = "G4_Al"
+d:Ge/BasketInnerWall/RMin               = 1.15 cm
+d:Ge/BasketInnerWall/RMax               = 1.25 cm
+d:Ge/BasketInnerWall/HL                 = 1.25 cm
+d:Ge/BasketInnerWall/RotX               = 90.0 deg
+s:Ge/BasketInnerWall/Color              = "brown"
+s:Ge/BasketInnerWall/DrawingStyle       = "WireFrame"
+
+
+###############################################################################
+# SECTION 10: BASKET OUTER WALL (Al)
+#
+# 1 mm Al shell on the outside of the ND3 annulus.
+# r = 2.50 cm to 2.60 cm, HL = 1.25 cm, RotX = 90 deg.
+# Rendered wireframe brown.
+###############################################################################
+
+s:Ge/BasketOuterWall/Type               = "TsCylinder"
+s:Ge/BasketOuterWall/Parent             = "BasketSpinAssembly"
+s:Ge/BasketOuterWall/Material           = "G4_Al"
+d:Ge/BasketOuterWall/RMin               = 2.50 cm
+d:Ge/BasketOuterWall/RMax               = 2.60 cm
+d:Ge/BasketOuterWall/HL                 = 1.25 cm
+d:Ge/BasketOuterWall/RotX               = 90.0 deg
+s:Ge/BasketOuterWall/Color              = "brown"
+s:Ge/BasketOuterWall/DrawingStyle       = "WireFrame"
+
+
+###############################################################################
+# SECTION 11: BEAM RASTER FOOTPRINT MARKER
+#
+# A thin (~1 mm) yellow box placed just upstream of the upstream window
+# to visually mark the 2.5 × 2.0 cm raster footprint.
+# This is a VISUALIZATION ONLY volume (G4_Galactic — negligible interaction).
+# It does NOT appear in the full simulation; it is added here purely to
+# show the beam cross-section in the OpenGL viewer.
+###############################################################################
+
+s:Ge/RasterFootprintMarker/Type         = "TsBox"
+s:Ge/RasterFootprintMarker/Parent       = "World"
+s:Ge/RasterFootprintMarker/Material     = "G4_Galactic"
+d:Ge/RasterFootprintMarker/HLX         = 1.25 cm
+d:Ge/RasterFootprintMarker/HLY         = 1.00 cm
+d:Ge/RasterFootprintMarker/HLZ         = 0.05 cm
+d:Ge/RasterFootprintMarker/TransZ      = -3.10 cm
+s:Ge/RasterFootprintMarker/Color       = "yellow"
+s:Ge/RasterFootprintMarker/DrawingStyle = "WireFrame"
+
+
+###############################################################################
+# SECTION 12: BEAM SOURCE POSITION MARKER
+#
+# Small cube at Z = -20 cm marking the electron beam origin.
+# G4_Galactic — no interaction — visualization only.
+###############################################################################
+
+s:Ge/BeamSourceMarker/Type              = "TsBox"
+s:Ge/BeamSourceMarker/Parent            = "World"
+s:Ge/BeamSourceMarker/Material          = "G4_Galactic"
+d:Ge/BeamSourceMarker/HLX              = 0.5 cm
+d:Ge/BeamSourceMarker/HLY              = 0.5 cm
+d:Ge/BeamSourceMarker/HLZ              = 0.5 cm
+###############################################################################
+# SECTION 13: OPENGL VISUALIZATION SETTINGS
+#
+# b:Ts/UseQt = "True" tells TOPAS to open the Qt/OpenGL viewer.
+#
+# The ONLY Vis/Camera parameters TOPAS 4.x accepts in the parameter file are
+# the two integer window pixel dimensions below.  All other camera properties
+# (viewpoint, zoom, background colour, axes) are NOT settable via parameter
+# file and must be adjusted interactively in the Qt window:
+#   Left-drag   : rotate       Right-drag / scroll : zoom
+#   Middle-drag : pan          'A' key             : toggle axes
+# Suggested first move: rotate ~30 deg about Y, ~20 deg about X so the beam
+# axis runs left-to-right and the annular basket cross-section is visible.
+###############################################################################
+
+b:Ts/UseQt                              = "True"
+i:Vis/Camera/WindowSizeX               = 1200
+i:Vis/Camera/WindowSizeY               = 900
+
+
+###############################################################################
+# SECTION 14: MINIMAL RUN CONTROL
+#
+# One history with a trivial particle so TOPAS initialises the geometry
+# and opens the viewer without running a real simulation.
+# Physics list is minimal (no hadronic) since no real tracking is needed.
+###############################################################################
+
+sv:Ph/Default/Modules                   = 1 "g4em-standard_opt4"
+
+# Dummy beam: 1 MeV electron, 1 history, straight along +Z
+s:So/DummyBeam/Type                     = "Beam"
+s:So/DummyBeam/Component                = "BeamSourceMarker"
+s:So/DummyBeam/BeamParticle             = "e-"
+d:So/DummyBeam/BeamEnergy               = 1.0 MeV
+u:So/DummyBeam/BeamEnergySpread         = 0.0
+s:So/DummyBeam/BeamPositionDistribution = "None"
+s:So/DummyBeam/BeamAngularDistribution  = "None"
+i:So/DummyBeam/NumberOfHistoriesInRun   = 1
+
+# Threading: single thread is fine for a geometry-only run
+i:Ts/NumberOfThreads                    = 1
+i:Ts/Seed                               = 42
+b:Ts/PauseBeforeQuit                    = "True"
+b:Ts/DumpParameters                     = "False"
+b:Ts/ShowCPUTime                        = "False"
+i:Ts/TrackingVerbosity                  = 0
+i:Ts/EventVerbosity                     = 0
+i:Ts/RunVerbosity                       = 1
+
+# Geometry overlap check — keep enabled to confirm no overlaps at startup
+b:Ge/CheckForOverlaps                   = "True"
+i:Ge/CheckForOverlapsResolution         = 10000
+b:Ge/QuitIfOverlapDetected              = "True"
+b:Ge/CheckForUnusedComponents           = "False"
+
+s:Ts/OutputPath                         = "./vis_output"
+
+###############################################################################
+# END OF FILE: UITF_ND3_geometry_vis.txt
+###############################################################################
