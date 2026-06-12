@@ -1,93 +1,45 @@
 %% ============================================================================
-%  analyze_topas.m  —  UITF ND3 Target Simulation Results Analysis (MATLAB)
+%  analyze_TOPAS_sim.m  —  UITF ND3 Target Simulation Results Analysis (MATLAB)
 %% ============================================================================
 %  Place this file in the same directory as your TOPAS CSV output files and run:
 %
-%      analyze_topas
+%      analyze_TOPAS_sim
 %
 %  No arguments needed. All outputs are written to the same directory.
 %
-%  EXPECTED INPUT FILES (any subset is fine; missing files are skipped):
-%    3-D voxel files  (25 R × 72 Phi × 50 Z = 90 000 rows, cols: r,phi,z,value)
-%        DoseAtSample.csv            primary dose scorer
-%        Dose_ND3_Binned3D.csv       alternate name for same scorer
-%        Dose_R.csv                  radial 1-D projection
-%        Dose_Z.csv                  axial  1-D projection
-%        DoseAxial_Combined.csv      combined-phase axial dose
-%        DoseAxial_PhaseA.csv        Phase-A axial dose
-%        DoseAxial_PhaseB.csv        Phase-B axial dose
-%        EnergyDep_ND3.csv           3-D energy deposition in ND3 target
+%  This trimmed version produces only:
+%    fig01_rz_heatmap.png    - 2D Dose map (R-Z plane, phi-averaged)
+%    fig02_rz_contours.png   - 2D Dose map (R-Z plane) with isodose contours
+%    fig03_radial_profile.png - radial dose profile (actual line graph)
+%    fig04_axial_profile.png  - axial dose profile (actual line graph)
 %
-%    Scalar energy files  (single float after header)
-%        EnergyDep_BasketInnerWall.csv
-%        EnergyDep_BasketOuterWall.csv
-%        EnergyDep_DownstreamThinWindow.csv
-%        EnergyDep_UpstreamThinWindow.csv
-%        EnergyDep_HeCryostatGas.csv
-%        EnergyDep_HeliumCoolantCore.csv
+%  Each profile graph (03/04) reports the Non-Uniformity Index
+%  NUI = sigma / xbar  (std dev / mean) computed over the plotted profile.
 %
-%  OUTPUT FILES (written alongside this script):
-%    Figures  : fig01_rz_heatmap.png  through  fig13_power_deposition.png
-%    Data     : export_dose_3d.mat, export_rz_dose_mean.csv, etc.
-%    Report   : analysis_report.txt
-%
-%  Dependencies: base MATLAB (Statistics Toolbox recommended for prctile).
-%                prctile fallback included if toolbox unavailable.
+%  EXPECTED INPUT FILES (3-D voxel files, 25 R x 72 Phi x 50 Z = 90000 rows,
+%  cols: r,phi,z,value):
+%        Dose_ND3_Binned3D.csv   (preferred primary dose scorer)
+%        Dose_RZ.csv / Dose_R.csv / Dose_Z.csv  (alternates, same format)
 %% ============================================================================
-
 clear; clc; close all;
-
 HERE = fileparts(mfilename('fullpath'));
 if isempty(HERE)
     HERE = pwd;   % called from command window
 end
-
 fprintf('\n%s\n', repmat('=',1,60));
 fprintf('  TOPAS UITF ND3  —  ANALYSIS\n');
 fprintf('  Directory: %s\n', HERE);
 fprintf('%s\n\n', repmat('=',1,60));
-
 %% ============================================================================
-%  1.  GEOMETRY & MATERIAL CONSTANTS  (from UITF_ND3.txt)
+%  1.  GEOMETRY CONSTANTS  (from UITF_ND3.txt)
 %% ============================================================================
-
-% ND3 target annulus
-ND3_RMIN_CM         = 1.25;        % cm   inner radius
-ND3_RMAX_CM         = 2.50;        % cm   outer radius
-ND3_HL_CM           = 1.25;        % cm   half-length  (full length 2.50 cm)
-ND3_DENSITY         = 0.5946;      % g/cm³  bulk (incl. packing voids)
-ND3_MOL_MASS        = 20.045;      % g/mol  ND3 = N14 + 3D
-ND3_CRYSTAL_DENSITY = 1.007;       % g/cm³  solid crystal
-ND3_PACKING_FRAC    = ND3_DENSITY / ND3_CRYSTAL_DENSITY;   % ~0.590
-ND3_VOL_CM3         = pi * (ND3_RMAX_CM^2 - ND3_RMIN_CM^2) * (2*ND3_HL_CM);
-ND3_MASS_G          = ND3_DENSITY  * ND3_VOL_CM3;
-ND3_RASTER_X        = 2.5;         % cm   beam raster full width
-ND3_RASTER_Y        = 2.0;         % cm   beam raster full height
-
-% Basket walls (aluminium)
-BASKET_INNER_RMIN   = 1.15;        % cm
-BASKET_INNER_RMAX   = 1.25;        % cm   (1 mm wall)
-BASKET_OUTER_RMIN   = 2.50;        % cm
-BASKET_OUTER_RMAX   = 2.60;        % cm   (1 mm wall)
-
-% Helium coolant core
-HE_CORE_RMAX        = 1.15;        % cm
-HE_DENSITY          = 0.0362;      % g/cm³
-
-% Window thickness
-WINDOW_THICK_CM     = 0.010;       % cm = 0.1 mm
-
-% Physical beam / MC parameters
-BEAM_CURRENT_A      = 1.0e-6;      % A
-N_HISTORIES         = 1e7;
-BEAM_ENERGY_MeV     = 8.0;         % MeV
-ELEM_CHARGE         = 1.602176634e-19;  % C
-MEV_TO_J            = 1.602176634e-13;  % J/MeV
-PARTICLE_RATE       = BEAM_CURRENT_A / ELEM_CHARGE;   % electrons/s
-SCALE_FACTOR        = PARTICLE_RATE  / N_HISTORIES;    % s^-1
-
+ND3_RMIN_CM   = 1.25;        % cm   inner radius
+ND3_RMAX_CM   = 2.50;        % cm   outer radius
+ND3_HL_CM     = 1.25;        % cm   half-length  (full length 2.50 cm)
+ND3_RASTER_X  = 2.5;         % cm   beam raster full width
+ND3_RASTER_Y  = 2.0;         % cm   beam raster full height
 %% ============================================================================
-%  2.  COLOUR PALETTE  (dark theme, matches original Python)
+%  2.  COLOUR PALETTE  (dark theme)
 %% ============================================================================
 BG      = [0.043 0.059 0.102];
 PANEL   = [0.075 0.098 0.161];
@@ -99,260 +51,52 @@ AMBER   = [1.000 0.702 0.278];
 GREEN_C = [0.298 0.686 0.314];
 RED_C   = [1.000 0.420 0.420];
 BLUE_C  = [0.259 0.647 0.961];
-PURPLE  = [0.702 0.616 0.859];
-
 %% ============================================================================
-%  3.  FILE LOOKUP TABLES
+%  3.  FILE LOOKUP TABLE  (3-D dose only)
 %% ============================================================================
-DOSE_3D_NAMES   = {'DoseAtSample.csv','Dose_ND3_Binned3D.csv','DoseND3Binned3D.csv'};
-DOSE_R_NAMES    = {'Dose_R.csv','DoseR.csv'};
-DOSE_Z_NAMES    = {'Dose_Z.csv','DoseZ.csv'};
-AXIAL_COMBINED  = {'DoseAxial_Combined.csv','DoseAxialCombined.csv'};
-AXIAL_PHASE_A   = {'DoseAxial_PhaseA.csv',  'DoseAxialPhaseA.csv'};
-AXIAL_PHASE_B   = {'DoseAxial_PhaseB.csv',  'DoseAxialPhaseB.csv'};
-EDEP_3D_NAMES   = {'EnergyDep_ND3.csv',     'EnergyDepND3.csv'};
-
-SCALAR_FILES = { ...
-    'BasketInnerWall',      'EnergyDep_BasketInnerWall.csv'; ...
-    'BasketOuterWall',      'EnergyDep_BasketOuterWall.csv'; ...
-    'DownstreamThinWindow', 'EnergyDep_DownstreamThinWindow.csv'; ...
-    'UpstreamThinWindow',   'EnergyDep_UpstreamThinWindow.csv'; ...
-    'HeCryostatGas',        'EnergyDep_HeCryostatGas.csv'; ...
-    'HeliumCoolantCore',    'EnergyDep_HeliumCoolantCore.csv'; ...
-};
-
+DOSE_3D_NAMES = {'Dose_ND3_Binned3D.csv', 'Dose_RZ.csv', 'Dose_R.csv', 'Dose_Z.csv', ...
+                 'DoseAtSample.csv', 'DoseND3Binned3D.csv'};
 %% ============================================================================
-%  4.  INITIALISE RESULT CONTAINERS
+%  4.  LOAD PRIMARY 3-D DOSE
 %% ============================================================================
-n_figs   = 0;
-all_stats = struct();
-scalars   = struct();
-
 d3 = []; hd = struct(); r_ax = []; phi_ax = []; z_ax = [];
-e3 = []; he = struct();
-r_direct = []; r_direct_x = [];
-z_direct = []; z_direct_x = [];
-phases   = struct('Combined',[],'PhaseA',[],'PhaseB',[]);
-
-%% ============================================================================
-%  5.  LOAD PRIMARY 3-D DOSE
-%% ============================================================================
 p = first_existing(DOSE_3D_NAMES, HERE);
-if ~isempty(p)
-    fprintf('[dose 3D]  %s\n', p);
-    [hd, data] = read_topas_csv(p);
-    if ~isempty(data) && size(data,2) == 4
-        [d3, r_ax, phi_ax, z_ax] = to_3d(data, hd);
-        s = compute_stats(d3, hd.unit);
-        s.quantity = hd.quantity;
-        all_stats.DoseAtSample = s;
-        save(fullfile(HERE,'export_dose_3d.mat'), 'd3', 'r_ax', 'phi_ax', 'z_ax');
-        fprintf('    saved  export_dose_3d.mat\n');
-        rz = rz_mean(d3);
-        save_rz_csv(rz, r_ax, z_ax, fullfile(HERE,'export_rz_dose_mean.csv'));
-        save_profile_csv(r_ax, rad_prof(d3), 'R_cm', 'Dose_Gy', ...
-                         fullfile(HERE,'export_radial_profile.csv'));
-        save_profile_csv(z_ax, axl_prof(d3), 'Z_cm', 'Dose_Gy', ...
-                         fullfile(HERE,'export_axial_profile.csv'));
-    end
-else
-    fprintf('[dose 3D]  NOT FOUND — skipping dose figures\n');
+if isempty(p)
+    error('No 3-D dose file found (looked for: %s)', strjoin(DOSE_3D_NAMES, ', '));
 end
-
-%% ============================================================================
-%  6.  1-D PROJECTIONS
-%% ============================================================================
-p = first_existing(DOSE_R_NAMES, HERE);
-if ~isempty(p) && ~isempty(r_ax)
-    fprintf('[Dose_R ]  %s\n', p);
-    [~, data] = read_topas_csv(p);
-    if ~isempty(data)
-        [idx, vals] = proj_1d(data);
-        if max(idx)+1 <= numel(r_ax)
-            r_direct_x = r_ax(idx+1);
-        else
-            r_direct_x = double(idx);
-        end
-        r_direct = vals;
-    end
+fprintf('[dose 3D]  %s\n', p);
+[hd, data] = read_topas_csv(p);
+if isempty(data) || size(data,2) ~= 4
+    error('Could not parse 3-D dose data from %s', p);
 end
-
-p = first_existing(DOSE_Z_NAMES, HERE);
-if ~isempty(p) && ~isempty(z_ax)
-    fprintf('[Dose_Z ]  %s\n', p);
-    [~, data] = read_topas_csv(p);
-    if ~isempty(data)
-        [idx, vals] = proj_1d(data);
-        if max(idx)+1 <= numel(z_ax)
-            z_direct_x = z_ax(idx+1);
-        else
-            z_direct_x = double(idx);
-        end
-        z_direct = vals;
-    end
-end
-
-%% ============================================================================
-%  7.  AXIAL PHASE ARRAYS
-%% ============================================================================
-phase_names = {'Combined','PhaseA','PhaseB'};
-phase_files = {AXIAL_COMBINED, AXIAL_PHASE_A, AXIAL_PHASE_B};
-for k = 1:3
-    pname = phase_names{k};
-    p = first_existing(phase_files{k}, HERE);
-    if ~isempty(p)
-        fprintf('[%-8s]  %s\n', pname, p);
-        [hph, data] = read_topas_csv(p);
-        if ~isempty(data) && size(data,2) == 4
-            [arr, ~, ~, z_tmp] = to_3d(data, hph);
-            phases.(pname) = arr;
-            if isempty(z_ax); z_ax = z_tmp; end
-            s = compute_stats(arr, hph.unit);
-            s.quantity = hph.quantity;
-            all_stats.(['Axial_' pname]) = s;
-        end
-    end
-end
-
-%% ============================================================================
-%  8.  3-D ENERGY DEPOSITION
-%% ============================================================================
-p = first_existing(EDEP_3D_NAMES, HERE);
-if ~isempty(p)
-    fprintf('[Edep 3D]  %s\n', p);
-    [he, data] = read_topas_csv(p);
-    if ~isempty(data) && size(data,2) == 4
-        [e3, r_tmp, ~, z_tmp] = to_3d(data, he);
-        if isempty(r_ax); r_ax = r_tmp; end
-        if isempty(z_ax); z_ax = z_tmp; end
-        s = compute_stats(e3, he.unit);
-        s.quantity = he.quantity;
-        all_stats.EnergyDep_ND3 = s;
-        save(fullfile(HERE,'export_edep_3d.mat'), 'e3');
-        fprintf('    saved  export_edep_3d.mat\n');
-        rz_e = rz_mean(e3);
-        r_e = r_tmp; z_e = z_tmp;
-        save_rz_csv(rz_e, r_e, z_e, fullfile(HERE,'export_rz_edep_mean.csv'));
-    end
-end
-
-%% ============================================================================
-%  9.  SCALAR ENERGIES
-%% ============================================================================
-for k = 1:size(SCALAR_FILES,1)
-    comp  = SCALAR_FILES{k,1};
-    fname = SCALAR_FILES{k,2};
-    p = fullfile(HERE, fname);
-    if exist(p,'file')
-        fprintf('[scalar ]  %s\n', fname);
-        [~, data] = read_topas_csv(p);
-        if ~isempty(data)
-            scalars.(comp) = data(1);
-        end
-    end
-end
-
+[d3, r_ax, phi_ax, z_ax] = to_3d(data, hd);
 fprintf('\n');
-
 %% ============================================================================
-%  10.  FIGURES
+%  5.  FIGURES
 %% ============================================================================
 fprintf('Generating figures...\n');
+TABGROUP = make_tab_group(BG, PANEL, TEXT_C, BORDER);
 
-if ~isempty(d3)
-    fig01_rz_heatmap(d3, r_ax, z_ax, hd, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G);
-    n_figs = n_figs + 1;
+fig01_rz_heatmap(d3, r_ax, z_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, ...
+    ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y);
 
-    fig02_rz_contours(d3, r_ax, z_ax, hd, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, BLUE_C, GREEN_C, RED_C, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G);
-    n_figs = n_figs + 1;
+fig02_rz_contours(d3, r_ax, z_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, BLUE_C, GREEN_C, RED_C, ...
+    ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM);
 
-    fig03_radial(d3, r_ax, hd, r_direct, r_direct_x, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G);
-    n_figs = n_figs + 1;
+fig03_radial(d3, r_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, ...
+    ND3_RMIN_CM, ND3_RMAX_CM);
 
-    fig04_axial(d3, z_ax, hd, z_direct, z_direct_x, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, GREEN_C, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM);
-    n_figs = n_figs + 1;
-
-    if ~isempty(phi_ax)
-        fig05_polar(d3, r_ax, phi_ax, z_ax, hd, HERE, BG, PANEL, DIM, TEXT_C, AMBER, HE_CORE_RMAX, BASKET_INNER_RMIN, BASKET_INNER_RMAX, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-        n_figs = n_figs + 1;
-    end
-
-    fig06_surface(d3, r_ax, z_ax, hd, HERE, BG, PANEL, DIM, TEXT_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-
-    fig07_dvh(d3, hd, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, RED_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-
-    fig08_uniformity(d3, z_ax, hd, HERE, BG, PANEL, TEXT_C, DIM, AMBER, CYAN, GREEN_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-end
-
-if isfield(phases,'PhaseA') || isfield(phases,'PhaseB') || isfield(phases,'Combined')
-    if isempty(z_ax)
-        z_ax = (0.5:49.5) * 0.05;
-    end
-    fig09_phases(phases, z_ax, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, RED_C, BLUE_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-end
-
-if ~isempty(fieldnames(scalars))
-    fig10_energy(scalars, SCALE_FACTOR, MEV_TO_J, BEAM_ENERGY_MeV, BEAM_CURRENT_A, PARTICLE_RATE, N_HISTORIES, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, BLUE_C, PURPLE, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-end
-
-if ~isempty(e3) && ~isempty(r_ax) && ~isempty(z_ax)
-    fig11_edep_rz(e3, r_ax, z_ax, he, HERE, BG, PANEL, TEXT_C, DIM, AMBER, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-end
-
-if ~isempty(d3) && ~isempty(e3)
-    fig12_scatter(d3, e3, hd, he, HERE, BG, PANEL, TEXT_C, DIM, RED_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y);
-    n_figs = n_figs + 1;
-end
-
-if ~isempty(fieldnames(scalars))
-    fig13_power(scalars, e3, r_ax, z_ax, he, SCALE_FACTOR, MEV_TO_J, BEAM_ENERGY_MeV, BEAM_CURRENT_A, PARTICLE_RATE, N_HISTORIES, ND3_RMIN_CM, ND3_RMAX_CM, ND3_DENSITY, ND3_PACKING_FRAC, ND3_HL_CM, ND3_VOL_CM3, ND3_MASS_G, ND3_RASTER_X, ND3_RASTER_Y, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, BLUE_C, PURPLE);
-    n_figs = n_figs + 1;
-end
-
-%% ============================================================================
-%  11.  EXPORTS & REPORT
-%% ============================================================================
-fprintf('\nExporting data...\n');
-if ~isempty(fieldnames(all_stats))
-    export_summary(all_stats, HERE);
-end
-if ~isempty(fieldnames(scalars))
-    export_energy(scalars, SCALE_FACTOR, MEV_TO_J, BEAM_ENERGY_MeV, PARTICLE_RATE, HERE);
-end
-if (~isempty(phases.Combined) || ~isempty(phases.PhaseA) || ~isempty(phases.PhaseB)) ...
-        && ~isempty(z_ax)
-    export_phases(phases, z_ax, HERE);
-end
-
-fprintf('\nWriting report...\n');
-write_report(all_stats, scalars, hd, n_figs, ...
-    ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ...
-    ND3_CRYSTAL_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_MOL_MASS, ...
-    ND3_RASTER_X, ND3_RASTER_Y, BASKET_INNER_RMIN, BASKET_INNER_RMAX, ...
-    BASKET_OUTER_RMIN, BASKET_OUTER_RMAX, HE_CORE_RMAX, HE_DENSITY, ...
-    WINDOW_THICK_CM, BEAM_ENERGY_MeV, BEAM_CURRENT_A, SCALE_FACTOR, ...
-    N_HISTORIES, PARTICLE_RATE, MEV_TO_J, HERE);
+fig04_axial(d3, z_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, GREEN_C, ND3_HL_CM);
 
 fprintf('\n%s\n', repmat('=',1,60));
-fprintf('  Done.  %d figures  |  %d scorers  |  %d scalar components\n', ...
-    n_figs, numel(fieldnames(all_stats)), numel(fieldnames(scalars)));
-fprintf('  All outputs -> %s\n', HERE);
+fprintf('  Done.  4 figures loaded into layout panel.\n');
+fprintf('  All outputs saved to -> %s\n', HERE);
 fprintf('%s\n\n', repmat('=',1,60));
 
 %% ============================================================================
 %  LOCAL FUNCTIONS
 %% ============================================================================
-
-% ── File helpers ─────────────────────────────────────────────────────────────
-
 function p = first_existing(names, base)
-    % Return full path to first file in names{} that exists, else [].
     p = [];
     for k = 1:numel(names)
         candidate = fullfile(base, names{k});
@@ -363,10 +107,7 @@ function p = first_existing(names, base)
     end
 end
 
-% ── Header parser ─────────────────────────────────────────────────────────────
-
 function h = parse_header(filepath)
-    % Parse TOPAS CSV comment block, return struct with fields matching Python Header.
     h.version   = ''; h.param_file = ''; h.scorer = ''; h.component = '';
     h.quantity  = ''; h.unit = '';       h.stat = '';
     h.r_bins    = []; h.r_size = [];
@@ -374,7 +115,6 @@ function h = parse_header(filepath)
     h.z_bins    = []; h.z_size  = [];
     h.warnings  = {};
     h.n_hdr     = 0;
-
     fid = fopen(filepath, 'r');
     if fid < 0
         warning('parse_header: cannot open %s', filepath);
@@ -388,7 +128,6 @@ function h = parse_header(filepath)
         h.n_hdr = h.n_hdr + 1;
         text = strtrim(raw(2:end));
         lo   = lower(text);
-
         if contains(lo,'topas version')
             parts = strsplit(text,':'); if numel(parts)>1; h.version = strtrim(parts{2}); end
         elseif contains(lo,'parameter file')
@@ -398,60 +137,59 @@ function h = parse_header(filepath)
         elseif contains(lo,'scored in component')
             parts = strsplit(text,':'); if numel(parts)>1; h.component = strtrim(parts{2}); end
         elseif contains(lo,'warning')
-            h.warnings{end+1} = text;
-        end
-
-        % Axis bin pattern: "R in N bins of X"
-        tok = regexp(text, '([A-Za-z]+)\s+in\s+(\d+)\s+bins?\s+of\s+([\d.eE+\-]+)', 'tokens','ignorecase');
-        if ~isempty(tok)
-            axis_name = upper(tok{1}{1});
-            n  = str2double(tok{1}{2});
-            sz = str2double(tok{1}{3});
-            if strcmp(axis_name,'R')
-                h.r_bins = n; h.r_size = sz;
-            elseif contains(axis_name,'PH')
-                h.phi_bins = n; h.phi_size = sz;
-            elseif strcmp(axis_name,'Z')
-                h.z_bins = n; h.z_size = sz;
+            h.warnings{end+1} = text; 
+        elseif startsWith(lo,'r in')
+            tok = regexp(text, '([\d.]+)\s*bins?\s*of\s*([\d.eE+-]+)', 'tokens', 'once');
+            if ~isempty(tok)
+                h.r_bins = round(str2double(tok{1}));
+                h.r_size = str2double(tok{2});
             end
-        end
-
-        % Quantity pattern: "Dose (Gy) : Sum"
-        tok2 = regexp(text, '(\w+)\s*\(\s*([^)]+)\s*\)\s*:\s*(\w+)', 'tokens');
-        if ~isempty(tok2)
-            h.quantity = strtrim(tok2{1}{1});
-            h.unit     = strtrim(tok2{1}{2});
-            h.stat     = strtrim(tok2{1}{3});
+        elseif startsWith(lo,'phi in')
+            tok = regexp(text, '([\d.]+)\s*bins?\s*of\s*([\d.eE+-]+)', 'tokens', 'once');
+            if ~isempty(tok)
+                h.phi_bins = round(str2double(tok{1}));
+                h.phi_size = str2double(tok{2});
+            end
+        elseif startsWith(lo,'z in')
+            tok = regexp(text, '([\d.]+)\s*bins?\s*of\s*([\d.eE+-]+)', 'tokens', 'once');
+            if ~isempty(tok)
+                h.z_bins = round(str2double(tok{1}));
+                h.z_size = str2double(tok{2});
+            end
+        elseif contains(lo,'scored quantity')
+            parts = strsplit(text,':'); if numel(parts)>1; h.quantity = strtrim(parts{2}); end
+        elseif contains(lo,'in units of') || contains(lo,'units of')
+            tok = regexp(text, 'units of\s*(\S+)', 'tokens', 'once');
+            if ~isempty(tok); h.unit = tok{1}; end
         end
     end
     fclose(fid);
+    if isempty(h.quantity)
+        h.quantity = h.scorer;
+        if isempty(h.quantity); h.quantity = 'Dose'; end
+    end
+    if isempty(h.unit); h.unit = 'Gy'; end
+    if isempty(h.r_bins);   h.r_bins   = 25; h.r_size   = 0.05; end
+    if isempty(h.phi_bins); h.phi_bins = 72; h.phi_size = 5.0;  end
+    if isempty(h.z_bins);   h.z_bins   = 50; h.z_size   = 0.05; end
 end
 
-% ── CSV reader ────────────────────────────────────────────────────────────────
-
 function [h, data] = read_topas_csv(filepath)
-    % Returns Header struct and numeric data array.
-    % For 3-D files: size (N, 4)  [r_idx, phi_idx, z_idx, value]
-    % For scalars  : size (1, 1)
     h    = parse_header(filepath);
     data = [];
-
     fid = fopen(filepath, 'r');
     if fid < 0
         warning('read_topas_csv: cannot open %s', filepath);
         return;
     end
-    % Skip header lines
     for k = 1:h.n_hdr
         fgetl(fid);
     end
-
     rows = {};
     while true
         raw = fgetl(fid);
         if ~ischar(raw); break; end
         raw = strtrim(raw);
-        % Strip trailing comma/spaces
         while ~isempty(raw) && (raw(end) == ',' || raw(end) == ' ')
             raw(end) = [];
         end
@@ -459,13 +197,11 @@ function [h, data] = read_topas_csv(filepath)
         parts = strsplit(raw, ',');
         nums = str2double(parts);
         if all(~isnan(nums))
-            rows{end+1} = nums; %#ok<AGROW>
+            rows{end+1} = nums; 
         end
     end
     fclose(fid);
-
     if isempty(rows); return; end
-    % Stack into matrix; handle ragged rows by padding with NaN
     ncols = max(cellfun(@numel, rows));
     mat   = NaN(numel(rows), ncols);
     for k = 1:numel(rows)
@@ -473,177 +209,53 @@ function [h, data] = read_topas_csv(filepath)
     end
     data = mat;
     if size(data,2) == 1
-        data = data(:,1);   % column -> vector
+        data = data(:,1);
     end
 end
 
-% ── 3-D reconstruction ────────────────────────────────────────────────────────
-
 function [arr3d, r, phi, z] = to_3d(data, h)
-    % Build dense (R x Phi x Z) array from flat (N,4) TOPAS output.
-    % Also returns physical bin-centre axes.
     R   = h.r_bins;   Phi = h.phi_bins;  Z = h.z_bins;
     arr3d = zeros(R, Phi, Z);
-
     ri   = min(max(round(data(:,1)), 0), R-1);
     phii = min(max(round(data(:,2)), 0), Phi-1);
     zi   = min(max(round(data(:,3)), 0), Z-1);
     vals = data(:,4);
-
-    % Linear index (1-based MATLAB)
     lin = sub2ind([R, Phi, Z], ri+1, phii+1, zi+1);
-    % Accumulate (handles duplicate indices safely)
     for k = 1:numel(lin)
         arr3d(lin(k)) = arr3d(lin(k)) + vals(k);
     end
-
     r   = (0:R-1)'   * h.r_size   + h.r_size/2;
     phi = (0:Phi-1)' * h.phi_size + h.phi_size/2;
     z   = (0:Z-1)'   * h.z_size   + h.z_size/2;
 end
 
-% ── Projections ───────────────────────────────────────────────────────────────
-
 function out = rz_mean(arr3d)
-    % phi-averaged R-Z map: (R, Phi, Z) -> (R, Z)
     out = mean(arr3d, 2);
-    out = squeeze(out);   % (R, Z)
+    out = squeeze(out); 
 end
 
 function out = rad_prof(arr3d)
-    % phi-Z averaged radial profile: (R, Phi, Z) -> (R,)
-    out = mean(arr3d(:,:), 2);
-    out = squeeze(mean(reshape(out, size(arr3d,1), []), 2));
-    % Simpler: average over dims 2 and 3
-    tmp = mean(arr3d, 3);   % (R, Phi)
-    out = mean(tmp, 2);     % (R,)
+    tmp = mean(arr3d, 3);
+    out = mean(tmp, 2);
 end
 
 function out = axl_prof(arr3d)
-    % phi-R averaged axial profile: (R, Phi, Z) -> (Z,)
-    tmp = mean(arr3d, 1);   % (1, Phi, Z)
-    tmp = mean(tmp, 2);     % (1, 1, Z)
-    out = squeeze(tmp);     % (Z,)
+    tmp = mean(arr3d, 1);
+    tmp = mean(tmp, 2);
+    out = squeeze(tmp);
 end
 
-function [idx, vals] = proj_1d(data)
-    % Extract (0-based index, value) from a 1-D TOPAS projection file.
-    if size(data,2) == 4
-        idx  = round(data(:,1));
-        vals = data(:,4);
-    elseif size(data,2) == 2
-        idx  = round(data(:,1));
-        vals = data(:,2);
-    elseif size(data,2) == 1
-        idx  = (0:numel(data)-1)';
-        vals = data;
+function nui = compute_nui(profile)
+    profile = profile(:);
+    xbar = mean(profile);
+    if xbar == 0
+        nui = 0;
     else
-        error('proj_1d: unexpected shape %dx%d', size(data,1), size(data,2));
+        nui = std(profile) / xbar;
     end
 end
-
-% ── Statistics ────────────────────────────────────────────────────────────────
-
-function s = compute_stats(arr, unit)
-    f   = arr(:);
-    fnz = f(f > 0);
-    pcts = robust_prctile(f, [2 5 25 50 75 95 98]);
-    s.unit      = unit;
-    s.quantity  = '';
-    s.n_voxels  = numel(f);
-    s.n_nonzero = sum(f > 0);
-    s.min       = min(f);
-    s.max       = max(f);
-    s.mean      = mean(f);
-    s.median    = median(f);
-    s.std       = std(f);
-    s.total     = sum(f);
-    s.d2        = pcts(1);
-    s.d5        = pcts(2);
-    s.d25       = pcts(3);
-    s.d50       = pcts(4);
-    s.d75       = pcts(5);
-    s.d95       = pcts(6);
-    s.d98       = pcts(7);
-    if numel(fnz) > 1
-        s.cv_pct = std(fnz)/mean(fnz)*100;
-        p90 = robust_prctile(fnz, 90);
-        p10 = robust_prctile(fnz, 10);
-        s.ui = (p90 - p10) / mean(fnz);
-    else
-        s.cv_pct = 0;
-        s.ui     = 0;
-    end
-end
-
-function p = robust_prctile(x, pct)
-    % Use Statistics Toolbox prctile if available; otherwise manual.
-    if exist('prctile','builtin') || exist('prctile','file')
-        p = prctile(x(:), pct);
-    else
-        xs = sort(x(:));
-        n  = numel(xs);
-        p  = zeros(1,numel(pct));
-        for k = 1:numel(pct)
-            if n == 0
-                p(k) = 0;
-            else
-                idx_f = (pct(k)/100) * (n-1) + 1;
-                idx_l = floor(idx_f); idx_h = ceil(idx_f);
-                if idx_l < 1; idx_l = 1; end
-                if idx_h > n; idx_h = n; end
-                frac  = idx_f - idx_l;
-                p(k)  = xs(idx_l)*(1-frac) + xs(idx_h)*frac;
-            end
-        end
-    end
-end
-
-function [centres, diff_frac, cumul_frac] = compute_dvh(arr3d, n_bins)
-    if nargin < 2; n_bins = 500; end
-    f = arr3d(:); f = f(f>0);
-    if isempty(f)
-        centres = zeros(1,n_bins); diff_frac = centres; cumul_frac = centres;
-        return;
-    end
-    [counts, edges] = histcounts(f, n_bins);
-    centres    = 0.5*(edges(1:end-1) + edges(2:end));
-    total      = sum(counts);
-    diff_frac  = counts / total;
-    cumul_frac = fliplr(cumsum(fliplr(counts))) / total;
-end
-
-function [ui, cv] = uniformity_vs_z(arr3d)
-    nz = size(arr3d,3);
-    ui = zeros(1,nz); cv = zeros(1,nz);
-    for iz = 1:nz
-        s = arr3d(:,:,iz);
-        s = s(s>0);
-        if numel(s) > 1
-            p90 = robust_prctile(s, 90);
-            p10 = robust_prctile(s, 10);
-            ui(iz) = (p90-p10) / mean(s);
-            cv(iz) = std(s)/mean(s)*100;
-        end
-    end
-end
-
-function dV = annular_dV(r_ax, dr, dz)
-    % Voxel volume for each R-bin [cm³]:  dV = 2pi * r * dr * dz
-    % Returns column vector (R, 1) for broadcasting.
-    dV = 2*pi * r_ax(:) * dr * dz;
-    dV(dV <= 0) = NaN;
-end
-
-function P = mc_to_power_W(edep_MeV_per_hist, SCALE_FACTOR, MEV_TO_J)
-    P = edep_MeV_per_hist * SCALE_FACTOR * MEV_TO_J;
-end
-
-% ── Gaussian smoothing (no Image Processing Toolbox required) ─────────────────
 
 function out = gauss_smooth2(data2d, sigma)
-    % 2-D Gaussian smoothing without toolbox dependency.
-    % Uses separable 1-D convolution.
     if sigma <= 0; out = data2d; return; end
     hw   = ceil(3*sigma);
     x    = -hw:hw;
@@ -652,11 +264,18 @@ function out = gauss_smooth2(data2d, sigma)
     out  = conv2(kern, kern, data2d, 'same');
 end
 
-% ── Figure helpers ────────────────────────────────────────────────────────────
+% ── Tab Framework Helpers ───────────────────────────────────────────────────
+function tg = make_tab_group(BG, PANEL, TEXT_C, BORDER)
+    fig = figure('Color', BG, 'Units','normalized', 'Position',[0.08 0.08 0.84 0.84], ...
+                  'Name','TOPAS UITF ND3 -- Dose Analysis', 'NumberTitle','off');
+    tg = uitabgroup('Parent', fig);
+end
 
-function fig = make_dark_figure(w, h, bg)
-    fig = figure('Visible','off','Color',bg, ...
-                 'Units','inches','Position',[1 1 w h]);
+function ax = make_tab_axes(tg, tab_title, w, h, bg, panel)
+    tab = uitab('Parent', tg, 'Title', tab_title, 'BackgroundColor', bg);
+    ax  = axes('Parent', tab, 'Units','normalized', 'Position',[0.09 0.12 0.85 0.78]);
+    ax.UserData.aspect = [w h];
+    ax.Color = panel;
 end
 
 function apply_dark_axes(ax, bg, panel, border, text_c, dim)
@@ -678,51 +297,40 @@ function h_cb = add_colorbar(ax, label, text_c, dim)
     h_cb.FontName = 'Courier New';
 end
 
-function add_stamp(fig, dim)
-    annotation(fig,'textbox',[0.6 0.001 0.39 0.025], ...
-        'String', sprintf('TOPAS UITF ND3  •  %s', datestr(now,'yyyy-mm-dd')), ...
-        'EdgeColor','none','Color',dim, ...
-        'FontSize',7,'FontName','Courier New', ...
-        'HorizontalAlignment','right','FitBoxToText','off');
+function add_nui_text(ax, nui, text_c)
+    xl = xlim(ax); yl = ylim(ax);
+    text(ax, xl(1) + 0.02*diff(xl), yl(2) - 0.05*diff(yl), ...
+        sprintf('NUI = \\sigma/\\bar{x} = %.4f', nui), ...
+        'Color', text_c, 'FontSize', 9, 'FontName','Courier New', ...
+        'VerticalAlignment','top', 'BackgroundColor',[0 0 0 0.5], ...
+        'Margin', 4);
 end
 
-function add_geo_annotation(fig, lines, panel, border, dim)
-    txt = strjoin(lines, newline);
-    annotation(fig,'textbox',[0.01 0.001 0.55 0.055], ...
-        'String',txt,'EdgeColor',border,'BackgroundColor',panel, ...
-        'Color',dim,'FontSize',6.5,'FontName','Courier New', ...
-        'FitBoxToText','on','Interpreter','none');
+function add_stamp(ax, dim)
+    xl = xlim(ax); yl = ylim(ax);
+    text(ax, xl(2) - 0.02*diff(xl), yl(1) + 0.04*diff(yl), ...
+        'UITF ND3 Target Sim', 'Color', dim, 'FontSize', 8, ...
+        'FontName', 'Courier New', 'HorizontalAlignment', 'right');
 end
 
-function geo_lines = make_geo_lines(ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ...
-                                    ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ...
-                                    ND3_MASS_G, ND3_RASTER_X, ND3_RASTER_Y)
-    geo_lines = { ...
-        sprintf('ND3 target: Ri=%.2f-Ro=%.2f cm, L=%.2f cm, V=%.1f cm^3', ...
-            ND3_RMIN_CM, ND3_RMAX_CM, 2*ND3_HL_CM, ND3_VOL_CM3), ...
-        sprintf('rho_bulk=%.4f g/cm^3  |  packing eta=%.3f  |  m~%.1f g  |  raster %.1fx%.1f cm', ...
-            ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RASTER_X, ND3_RASTER_Y) ...
-    };
+function save_tab_fig(ax, filename, folder)
+    exportgraphics(ax, fullfile(folder, filename), 'Resolution', 150);
 end
 
-function save_fig(fig, fname, HERE)
-    fpath = fullfile(HERE, fname);
-    print(fig, fpath, '-dpng', '-r150');
-    close(fig);
-    fprintf('    saved  %s\n', fname);
-end
-
-% ── FIGURE 01: R-Z heatmap ───────────────────────────────────────────────────
-
-function fig01_rz_heatmap(d3, r_ax, z_ax, hd, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G)
+% ── FIGURE 01: R-Z 2D dose map (heatmap) ─────────────────────────────────────
+function fig01_rz_heatmap(d3, r_ax, z_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, ...
+    ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y)
     rz   = gauss_smooth2(rz_mean(d3), 0.8);
-    fig  = make_dark_figure(10, 6, BG);
-    ax   = axes(fig);
-    pcolor(ax, z_ax(:)', r_ax(:), rz); shading(ax,'flat');
+    nui  = compute_nui(rz(:));
+    
+    ax = make_tab_axes(TABGROUP, '2D Heatmap', 10, 6, BG, PANEL);
+    pcolor(ax, z_ax(:)', r_ax(:), rz);
+    shading(ax,'flat');
     colormap(ax, 'hot');
     apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
     add_colorbar(ax, sprintf('%s (%s)', hd.quantity, hd.unit), TEXT_C, DIM);
     hold(ax,'on');
+    
     for r_b = [ND3_RMIN_CM, ND3_RMAX_CM]
         plot(ax, [z_ax(1) z_ax(end)], [r_b r_b], '--', 'Color', AMBER, 'LineWidth', 0.9);
     end
@@ -732,29 +340,30 @@ function fig01_rz_heatmap(d3, r_ax, z_ax, hd, HERE, BG, PANEL, BORDER, TEXT_C, D
         plot(ax, [ze ze], [r_ax(1) r_ax(end)], ':', 'Color', CYAN, 'LineWidth', 0.7);
     end
     xlabel(ax,'Z (cm)'); ylabel(ax,'R (cm)');
-    title(ax,'Dose Distribution -- R-Z Plane  (phi-averaged, Gaussian smooth sigma=0.8)');
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig01_rz_heatmap.png', HERE);
+    title(ax,'2D Dose Map -- R-Z Plane (phi-averaged, Gaussian smooth \sigma=0.8)');
+    add_nui_text(ax, nui, TEXT_C);
+    add_stamp(ax, DIM);
+    save_tab_fig(ax, 'fig01_rz_heatmap.png', HERE);
 end
 
-% ── FIGURE 02: R-Z contours ──────────────────────────────────────────────────
-
-function fig02_rz_contours(d3, r_ax, z_ax, hd, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, BLUE_C, GREEN_C, RED_C, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G)
+% ── FIGURE 02: R-Z 2D dose map with isodose contours ─────────────────────────
+function fig02_rz_contours(d3, r_ax, z_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, BLUE_C, GREEN_C, RED_C, ...
+    ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM)
     rz     = gauss_smooth2(rz_mean(d3), 1.0);
+    nui    = compute_nui(rz(:));
     peak   = max(rz(:));
-    r_prof = mean(rz, 2);   % (R,)
-
+    r_prof = mean(rz, 2);   
     iso_fracs  = [0.20, 0.50, 0.80, 0.90, 0.95];
     iso_colors = {BLUE_C; CYAN; GREEN_C; AMBER; RED_C};
-
-    fig  = make_dark_figure(11, 6, BG);
-    ax   = axes(fig);
-    pcolor(ax, z_ax(:)', r_ax(:), rz); shading(ax,'flat'); hold(ax,'on');
+    
+    ax = make_tab_axes(TABGROUP, 'Isodose Contours', 11, 6, BG, PANEL);
+    pcolor(ax, z_ax(:)', r_ax(:), rz);
+    shading(ax,'flat');
+    hold(ax,'on');
     colormap(ax,'hot');
     apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
     add_colorbar(ax, sprintf('%s (%s)', hd.quantity, hd.unit), TEXT_C, DIM);
-
+    
     legend_entries = {};
     for k = 1:numel(iso_fracs)
         frac = iso_fracs(k);
@@ -764,688 +373,67 @@ function fig02_rz_contours(d3, r_ax, z_ax, hd, HERE, BG, PANEL, BORDER, TEXT_C, 
         r_iso = r_ax(idxs(end));
         plot(ax, [z_ax(1) z_ax(end)], [r_iso r_iso], '-', ...
             'Color', iso_colors{k}, 'LineWidth', 1.5);
-        legend_entries{end+1} = sprintf('%d%%  (R=%.3f cm)', round(frac*100), r_iso); %#ok<AGROW>
+        legend_entries{end+1} = sprintf('%d%%  (R=%.3f cm)', round(frac*100), r_iso); 
     end
     for r_b = [ND3_RMIN_CM, ND3_RMAX_CM]
         plot(ax, [z_ax(1) z_ax(end)], [r_b r_b], '--', 'Color', TEXT_C, 'LineWidth', 1.0, 'HandleVisibility','off');
     end
-    legend(ax, legend_entries, 'Location','northeast','TextColor',TEXT_C, ...
-           'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
+    if ~isempty(legend_entries)
+        legend(ax, legend_entries, 'Location','northeast','TextColor',TEXT_C, ...
+               'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
+    end
     xlabel(ax,'Z (cm)'); ylabel(ax,'R (cm)');
-    title(ax, sprintf('R-Z Dose Map with Isodose Contours  |  Peak: %.4e %s', peak, hd.unit));
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig02_rz_contours.png', HERE);
+    title(ax, sprintf('2D Dose Map with Isodose Contours  |  Peak: %.4e %s', peak, hd.unit));
+    add_nui_text(ax, nui, TEXT_C);
+    add_stamp(ax, DIM);
+    save_tab_fig(ax, 'fig02_rz_contours.png', HERE);
 end
 
-% ── FIGURE 03: radial profile ────────────────────────────────────────────────
-
-function fig03_radial(d3, r_ax, hd, r_direct, r_direct_x, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G)
+% ── FIGURE 03: radial profile (graph) ────────────────────────────────────────
+function fig03_radial(d3, r_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, ...
+    ND3_RMIN_CM, ND3_RMAX_CM)
     prof = rad_prof(d3);
-    fig  = make_dark_figure(9, 5, BG);
-    ax   = axes(fig);
+    nui  = compute_nui(prof);
+    
+    ax = make_tab_axes(TABGROUP, 'Radial Profile', 9, 5, BG, PANEL);
     hold(ax,'on');
-    fill(ax, [r_ax; flipud(r_ax)]', [prof; zeros(size(prof))]', CYAN, 'FaceAlpha',0.12, 'EdgeColor','none');
-    plot(ax, r_ax, prof, 'Color', CYAN, 'LineWidth', 2, 'DisplayName','3-D array (phi-Z avg)');
-    if ~isempty(r_direct)
-        plot(ax, r_direct_x, r_direct, '--', 'Color', AMBER, 'LineWidth', 1.6, 'DisplayName','Dose\_R.csv');
-    end
-    % ND3 annulus shading
+    fill(ax, [r_ax; flipud(r_ax)]', [prof; zeros(size(prof))]', CYAN, 'FaceAlpha',0.12, 'EdgeColor','none', 'HandleVisibility','off');
+    plot(ax, r_ax, prof, 'Color', CYAN, 'LineWidth', 2, 'DisplayName','Radial profile (phi-Z avg)');
+    
     xpatch = [ND3_RMIN_CM ND3_RMAX_CM ND3_RMAX_CM ND3_RMIN_CM];
     yl = [0 0 max(prof)*1.1 max(prof)*1.1];
     fill(ax, xpatch, yl, GREEN_C, 'FaceAlpha',0.07,'EdgeColor','none','HandleVisibility','off');
     plot(ax,[ND3_RMIN_CM ND3_RMIN_CM],[0 max(prof)],'--','Color',GREEN_C,'LineWidth',0.9,'HandleVisibility','off');
     plot(ax,[ND3_RMAX_CM ND3_RMAX_CM],[0 max(prof)],'--','Color',GREEN_C,'LineWidth',0.9,'HandleVisibility','off');
-    % Peak annotation
+    
     [~, ip] = max(prof);
     text(ax, r_ax(ip)+0.05, prof(ip)*1.05, sprintf('%.3e', prof(ip)), ...
         'Color',AMBER,'FontSize',8,'FontName','Courier New');
     legend(ax, 'Location','best','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
     apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
     xlabel(ax,'R (cm)'); ylabel(ax, sprintf('%s (%s)', hd.quantity, hd.unit));
-    title(ax, 'Radial Dose Profile  (averaged over all phi and Z)');
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig03_radial_profile.png', HERE);
+    title(ax, sprintf('Radial Dose Profile  (averaged over all phi and Z)  |  NUI = %.4f', nui));
+    add_stamp(ax, DIM);
+    save_tab_fig(ax, 'fig03_radial_profile.png', HERE);
 end
 
-% ── FIGURE 04: axial profile ─────────────────────────────────────────────────
-
-function fig04_axial(d3, z_ax, hd, z_direct, z_direct_x, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, GREEN_C, ND3_HL_CM, ND3_RASTER_X, ND3_RASTER_Y, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM)
+% ── FIGURE 04: axial profile (graph) ─────────────────────────────────────────
+function fig04_axial(d3, z_ax, hd, TABGROUP, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, GREEN_C, ND3_HL_CM) %#ok<INUSD>
     prof = axl_prof(d3);
-    fig  = make_dark_figure(9, 5, BG);
-    ax   = axes(fig);
+    nui  = compute_nui(prof);
+    
+    ax = make_tab_axes(TABGROUP, 'Axial Profile', 9, 5, BG, PANEL);
     hold(ax,'on');
-    fill(ax, [z_ax; flipud(z_ax)]', [prof; zeros(size(prof))]', GREEN_C, 'FaceAlpha',0.12,'EdgeColor','none');
-    plot(ax, z_ax, prof, 'Color', GREEN_C, 'LineWidth', 2, 'DisplayName','3-D array (phi-R avg)');
-    if ~isempty(z_direct)
-        plot(ax, z_direct_x, z_direct, '--', 'Color', AMBER, 'LineWidth', 1.6, 'DisplayName','Dose\_Z.csv');
-    end
-    z_full = 2*ND3_HL_CM;
-    raster_start = (z_full - ND3_RASTER_X)/2;
-    raster_end   = raster_start + ND3_RASTER_X;
-    r_s = max(raster_start, z_ax(1));
-    r_e = min(raster_end,   z_ax(end));
-    yl  = [0 0 max(prof)*1.1 max(prof)*1.1];
-    fill(ax, [r_s r_e r_e r_s], yl, AMBER, 'FaceAlpha',0.08,'EdgeColor','none','HandleVisibility','off');
+    fill(ax, [z_ax; flipud(z_ax)]', [prof; zeros(size(prof))]', GREEN_C, 'FaceAlpha',0.12,'EdgeColor','none', 'HandleVisibility','off');
+    plot(ax, z_ax, prof, 'Color', GREEN_C, 'LineWidth', 2, 'DisplayName','Axial profile (phi-R avg)');
+    
     [~, ip] = max(prof);
     text(ax, z_ax(ip)+0.05, prof(ip)*1.05, sprintf('%.3e', prof(ip)), ...
         'Color',AMBER,'FontSize',8,'FontName','Courier New');
     legend(ax,'Location','best','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
     apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
     xlabel(ax,'Z (cm)'); ylabel(ax, sprintf('%s (%s)', hd.quantity, hd.unit));
-    title(ax, 'Axial Dose Profile  (averaged over all phi and R)');
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig04_axial_profile.png', HERE);
-end
-
-% ── FIGURE 05: polar slice ────────────────────────────────────────────────────
-
-function fig05_polar(d3, r_ax, phi_ax, z_ax, hd, HERE, BG, PANEL, DIM, TEXT_C, AMBER, HE_CORE_RMAX, BASKET_INNER_RMIN, BASKET_INNER_RMAX, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    z_prof = axl_prof(d3);
-    [~, iz] = max(z_prof);
-    slc = squeeze(d3(:,:,iz));   % (R, Phi)
-
-    phi_r  = deg2rad(phi_ax(:)');
-    [Phi_m, R_m] = meshgrid(phi_r, r_ax(:));
-
-    fig = make_dark_figure(8, 7, BG);
-    ax  = polaraxes(fig);
-    ax.Color = PANEL;
-
-    pcolor(ax, Phi_m, R_m, slc); shading(ax,'flat');
-    colormap(ax,'hot');
-    ax.ThetaDir  = 'clockwise';
-    ax.ThetaZeroLocation = 'top';
-    ax.ThetaColor = DIM; ax.RColor = DIM;
-    ax.FontName = 'Courier New'; ax.FontSize = 8;
-
-    cb = colorbar(ax);
-    cb.Label.String = sprintf('%s (%s)', hd.quantity, hd.unit);
-    cb.Label.Color  = TEXT_C;
-    cb.Color = DIM;
-
-    z_pos = (iz-1)*hd.z_size + hd.z_size/2;
-    title(ax, sprintf('Polar Dose Slice  --  Z = %.3f cm  (peak)', z_pos), ...
-        'Color', TEXT_C, 'FontSize', 11, 'FontWeight', 'bold');
-    add_stamp(fig, DIM);
-    extra = {sprintf('Slice at peak-Z | He coolant core r<%.2f cm | Al inner wall %.2f-%.2f cm', ...
-                     HE_CORE_RMAX, BASKET_INNER_RMIN, BASKET_INNER_RMAX)};
-    all_lines = [make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), extra];
-    add_geo_annotation(fig, all_lines, PANEL, [0.165 0.208 0.314], DIM);
-    save_fig(fig, 'fig05_polar_slice.png', HERE);
-end
-
-% ── FIGURE 06: 3-D surface ────────────────────────────────────────────────────
-
-function fig06_surface(d3, r_ax, z_ax, hd, HERE, BG, PANEL, DIM, TEXT_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    rz = gauss_smooth2(rz_mean(d3), 0.6);
-    [Z_m, R_m] = meshgrid(z_ax(:)', r_ax(:));
-
-    fig = make_dark_figure(11, 7, BG);
-    ax  = axes(fig, 'Color', PANEL);
-    surf(ax, Z_m, R_m, rz, 'EdgeColor','none','FaceAlpha',0.92);
-    colormap(ax,'hot');
-    ax.Color = PANEL;
-    ax.XColor = DIM; ax.YColor = DIM; ax.ZColor = DIM;
-    ax.FontName = 'Courier New'; ax.FontSize = 8;
-    xlabel(ax,'Z (cm)','Color',DIM); ylabel(ax,'R (cm)','Color',DIM);
-    zlabel(ax, hd.unit, 'Color', DIM);
-    title(ax,'3-D Dose Surface -- R x Z (phi-averaged)','Color',TEXT_C,'FontSize',11,'FontWeight','bold');
-    grid(ax,'on'); ax.GridColor = [0.118 0.165 0.259];
-    view(ax, -45, 30);
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, [0.165 0.208 0.314], DIM);
-    save_fig(fig, 'fig06_3d_surface.png', HERE);
-end
-
-% ── FIGURE 07: DVH ────────────────────────────────────────────────────────────
-
-function fig07_dvh(d3, hd, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, RED_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    [bins, diff_f, cumul_f] = compute_dvh(d3);
-    s = compute_stats(d3, hd.unit);
-
-    fig = make_dark_figure(12, 5, BG);
-
-    ax1 = subplot(1,2,1,'Parent',fig);
-    dw = bins(2)-bins(1);
-    bar(ax1, bins, diff_f, 1.0, 'FaceColor', CYAN, 'EdgeColor','none','FaceAlpha',0.7);
-    apply_dark_axes(ax1, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax1, sprintf('Dose (%s)', hd.unit));
-    ylabel(ax1,'Volume fraction');
-    title(ax1,'Differential DVH');
-
-    ax2 = subplot(1,2,2,'Parent',fig);
-    hold(ax2,'on');
-    fill(ax2, [bins, fliplr(bins)], [cumul_f*100, zeros(1,numel(cumul_f))], ...
-         AMBER, 'FaceAlpha',0.12,'EdgeColor','none');
-    plot(ax2, bins, cumul_f*100, 'Color', AMBER, 'LineWidth', 2);
-    for dkey_val = {{'d98',GREEN_C,'D98'}, {'d2',RED_C,'D2'}, {'d50',CYAN,'D50'}}
-        dkey = dkey_val{1}{1}; col = dkey_val{1}{2}; lbl = dkey_val{1}{3};
-        xv = s.(dkey);
-        plot(ax2, [xv xv], [0 100], '--', 'Color', col, 'LineWidth', 1.1, ...
-            'DisplayName', sprintf('%s = %.3e %s', lbl, xv, hd.unit));
-    end
-    legend(ax2, 'Location','northeast','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
-    apply_dark_axes(ax2, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax2, sprintf('Dose (%s)', hd.unit));
-    ylabel(ax2,'Volume receiving >= dose (%)');
-    ylim(ax2,[0 105]);
-    title(ax2,'Cumulative DVH');
-
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig07_dvh.png', HERE);
-end
-
-% ── FIGURE 08: uniformity vs Z ────────────────────────────────────────────────
-
-function fig08_uniformity(d3, z_ax, hd, HERE, BG, PANEL, TEXT_C, DIM, AMBER, CYAN, GREEN_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    [ui, cv] = uniformity_vs_z(d3);
-    fig = make_dark_figure(10, 7, BG);
-    BORDER = [0.165 0.208 0.314];
-
-    ax1 = subplot(2,1,1,'Parent',fig);
-    hold(ax1,'on');
-    fill(ax1, [z_ax; flipud(z_ax)]', [ui(:); zeros(size(ui(:)))]', CYAN, 'FaceAlpha',0.12,'EdgeColor','none');
-    plot(ax1, z_ax, ui, 'Color', CYAN, 'LineWidth', 2);
-    plot(ax1, [z_ax(1) z_ax(end)], [0.05 0.05], '--', 'Color', AMBER, 'LineWidth', 1, 'DisplayName','UI=0.05');
-    apply_dark_axes(ax1, BG, PANEL, BORDER, TEXT_C, DIM);
-    ylabel(ax1,'Uniformity Index');
-    title(ax1,'Dose Uniformity vs Z  |  UI=(D10%-D90%)/Dmean  |  CV=sigma/mu*100%');
-    legend(ax1,'Location','best','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
-
-    ax2 = subplot(2,1,2,'Parent',fig);
-    hold(ax2,'on');
-    fill(ax2, [z_ax; flipud(z_ax)]', [cv(:); zeros(size(cv(:)))]', GREEN_C, 'FaceAlpha',0.12,'EdgeColor','none');
-    plot(ax2, z_ax, cv, 'Color', GREEN_C, 'LineWidth', 2);
-    apply_dark_axes(ax2, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax2,'Z (cm)'); ylabel(ax2,'CV (%)');
-
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig08_uniformity.png', HERE);
-end
-
-% ── FIGURE 09: phase comparison ───────────────────────────────────────────────
-
-function fig09_phases(phases, z_ax, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, RED_C, BLUE_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    cols = struct('Combined',CYAN,'PhaseA',AMBER,'PhaseB',GREEN_C);
-    fig  = make_dark_figure(10, 8, BG);
-
-    ax1 = subplot(4,1,1:3,'Parent',fig);
-    hold(ax1,'on');
-    profs = struct();
-    for pname = fieldnames(phases)'
-        name = pname{1};
-        arr  = phases.(name);
-        if isempty(arr); continue; end
-        p = axl_prof(arr);
-        n = min(numel(p), numel(z_ax));
-        profs.(name) = p(1:n);
-        col = cols.(name);
-        fill(ax1, [z_ax(1:n); flipud(z_ax(1:n))]', [p(1:n); zeros(n,1)]', col, 'FaceAlpha',0.08,'EdgeColor','none');
-        plot(ax1, z_ax(1:n), p(1:n), 'Color', col, 'LineWidth', 2, 'DisplayName', name);
-    end
-    apply_dark_axes(ax1, BG, PANEL, BORDER, TEXT_C, DIM);
-    ylabel(ax1,'Dose (Gy)');
-    legend(ax1,'Location','best','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
-    title(ax1,'Phase Comparison -- Axial Dose Profiles');
-
-    ax2 = subplot(4,1,4,'Parent',fig);
-    hold(ax2,'on');
-    if isfield(profs,'PhaseA') && isfield(profs,'PhaseB')
-        n = min(numel(profs.PhaseA), numel(profs.PhaseB));
-        diff = profs.PhaseA(1:n) - profs.PhaseB(1:n);
-        plot(ax2, z_ax(1:n), diff, 'Color', RED_C, 'LineWidth', 1.5, 'DisplayName','PhaseA - PhaseB');
-        plot(ax2, [z_ax(1) z_ax(n)], [0 0], '--', 'Color', DIM, 'LineWidth', 0.8);
-        fill(ax2, [z_ax(1:n); flipud(z_ax(1:n))]', [max(diff,0); zeros(n,1)]', AMBER, 'FaceAlpha',0.18,'EdgeColor','none');
-        fill(ax2, [z_ax(1:n); flipud(z_ax(1:n))]', [min(diff,0); zeros(n,1)]', BLUE_C, 'FaceAlpha',0.18,'EdgeColor','none');
-        legend(ax2,'Location','best','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
-    end
-    apply_dark_axes(ax2, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax2,'Z (cm)'); ylabel(ax2,'Delta Dose (Gy)');
-
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig09_phase_comparison.png', HERE);
-end
-
-% ── FIGURE 10: energy balance ─────────────────────────────────────────────────
-
-function fig10_energy(scalars, SCALE_FACTOR, MEV_TO_J, BEAM_ENERGY_MeV, BEAM_CURRENT_A, PARTICLE_RATE, N_HISTORIES, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, BLUE_C, PURPLE, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    beam_power_W = BEAM_ENERGY_MeV * MEV_TO_J * PARTICLE_RATE;
-    fnames = fieldnames(scalars);
-    vals   = cellfun(@(f) scalars.(f), fnames);
-    power  = vals * SCALE_FACTOR * MEV_TO_J;
-    total  = sum(vals);
-    fracs  = vals / total * 100;
-    [~, order] = sort(vals);
-    fnames = fnames(order); vals = vals(order); fracs = fracs(order); power = power(order);
-
-    bar_cols = zeros(numel(fnames),3);
-    for k = 1:numel(fnames)
-        nl = lower(fnames{k});
-        if contains(nl,'basket'); bar_cols(k,:) = AMBER;
-        elseif contains(nl,'window'); bar_cols(k,:) = CYAN;
-        elseif contains(nl,'he'); bar_cols(k,:) = BLUE_C;
-        elseif contains(nl,'nd3'); bar_cols(k,:) = GREEN_C;
-        else; bar_cols(k,:) = PURPLE;
-        end
-    end
-
-    fig = make_dark_figure(10, 5, BG);
-    ax  = axes(fig);
-    hold(ax,'on');
-    yp = 1:numel(fnames);
-    for k = 1:numel(fnames)
-        barh(ax, yp(k), vals(k)/1e6, 0.6, 'FaceColor', bar_cols(k,:), 'EdgeColor', BORDER, 'LineWidth', 0.6);
-        text(ax, vals(k)/1e6 + total/1e6*0.01, yp(k), ...
-            sprintf('%.3f MeV  (%.1f%%)  -> %.3f mW', vals(k)/1e6, fracs(k), power(k)*1e3), ...
-            'Color',TEXT_C,'FontSize',8,'FontName','Courier New','VerticalAlignment','middle');
-    end
-    set(ax,'YTick',yp,'YTickLabel',strrep(fnames,'_',' '));
-    apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax,'Energy deposited  (MeV x 10^6)');
-    title(ax, sprintf('Energy Balance  |  Beam: %.1f MeV @ %.0f uA  ->  P_beam=%.3f W  |  Tracked: %.3f mW', ...
-        BEAM_ENERGY_MeV, BEAM_CURRENT_A*1e6, beam_power_W, sum(power)*1e3));
-    add_stamp(fig, DIM);
-    extra = {sprintf('Beam: %.0f MeV e-  @  %.1f uA  ->  P_beam=%.3f W  |  N_hist=%.0e  |  scale=%.3e s^-1', ...
-                     BEAM_ENERGY_MeV, BEAM_CURRENT_A*1e6, beam_power_W, N_HISTORIES, SCALE_FACTOR)};
-    all_lines = [make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), extra];
-    add_geo_annotation(fig, all_lines, PANEL, BORDER, DIM);
-    save_fig(fig, 'fig10_energy_balance.png', HERE);
-end
-
-% ── FIGURE 11: Edep R-Z heatmap ───────────────────────────────────────────────
-
-function fig11_edep_rz(e3, r_ax, z_ax, he, HERE, BG, PANEL, TEXT_C, DIM, AMBER, ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RASTER_X, ND3_RASTER_Y)
-    BORDER = [0.165 0.208 0.314];
-    rz = gauss_smooth2(rz_mean(e3), 0.8);
-    fig = make_dark_figure(10, 6, BG);
-    ax  = axes(fig);
-    pcolor(ax, z_ax(:)', r_ax(:), rz); shading(ax,'flat');
-    colormap(ax,'plasma'); % use 'hot' if plasma unavailable
-    apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
-    add_colorbar(ax, sprintf('%s (%s)', he.quantity, he.unit), TEXT_C, DIM);
-    hold(ax,'on');
-    for r_b = [ND3_RMIN_CM, ND3_RMAX_CM]
-        plot(ax,[z_ax(1) z_ax(end)],[r_b r_b],'--','Color',AMBER,'LineWidth',0.9);
-    end
-    xlabel(ax,'Z (cm)'); ylabel(ax,'R (cm)');
-    title(ax,'Energy Deposition -- R-Z Plane  (phi-averaged, Gaussian smooth sigma=0.8)');
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig11_edep_rz_heatmap.png', HERE);
-end
-
-% ── FIGURE 12: dose vs Edep scatter ──────────────────────────────────────────
-
-function fig12_scatter(d3, e3, hd, he, HERE, BG, PANEL, TEXT_C, DIM, RED_C, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_RMIN_CM, ND3_RMAX_CM, ND3_RASTER_X, ND3_RASTER_Y)
-    BORDER = [0.165 0.208 0.314];
-    nR = size(d3,1); nPhi = size(d3,2); nZ = size(d3,3);
-    ri_full = repmat((1:nR)', [1, nPhi*nZ]);
-    ri_full = ri_full(:) - 1;   % 0-based for colour mapping
-
-    df = d3(:); ef = e3(:);
-    mask = (df > 0) & (ef > 0);
-    df = df(mask); ef = ef(mask); ri = ri_full(mask);
-
-    N_MAX = 8000;
-    if numel(df) > N_MAX
-        idx = randperm(numel(df), N_MAX);
-        df = df(idx); ef = ef(idx); ri = ri(idx);
-    end
-
-    cmap = cool(256);
-    ci   = max(1, round((ri / (nR-1)) * 255) + 1);
-    colors = cmap(ci,:);
-
-    p_coef = polyfit(ef, df, 1);
-    xline_v = linspace(min(ef), max(ef), 200);
-    yfit   = polyval(p_coef, xline_v);
-
-    fig = make_dark_figure(9, 6, BG);
-    ax  = axes(fig);
-    scatter(ax, ef, df, 4, colors, 'filled', 'MarkerFaceAlpha', 0.5);
-    hold(ax,'on');
-    plot(ax, xline_v, yfit, '--', 'Color', RED_C, 'LineWidth', 1.5, ...
-        'DisplayName', sprintf('Linear fit  slope=%.3e', p_coef(1)));
-    legend(ax,'Location','best','TextColor',TEXT_C,'EdgeColor',BORDER,'Color',PANEL,'FontSize',8,'FontName','Courier New');
-    apply_dark_axes(ax, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax, sprintf('Energy deposition (%s)', he.unit));
-    ylabel(ax, sprintf('Dose (%s)', hd.unit));
-    title(ax, 'Dose vs Energy Deposition (per voxel)  |  coloured by R-bin  |  subsampled to 8000 pts');
-    add_stamp(fig, DIM);
-    add_geo_annotation(fig, make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), PANEL, BORDER, DIM);
-    save_fig(fig, 'fig12_dose_vs_edep.png', HERE);
-end
-
-% ── FIGURE 13: power deposition ──────────────────────────────────────────────
-
-function fig13_power(scalars, e3, r_ax, z_ax, he, SCALE_FACTOR, MEV_TO_J, BEAM_ENERGY_MeV, BEAM_CURRENT_A, PARTICLE_RATE, N_HISTORIES, ND3_RMIN_CM, ND3_RMAX_CM, ND3_DENSITY, ND3_PACKING_FRAC, ND3_HL_CM, ND3_VOL_CM3, ND3_MASS_G, ND3_RASTER_X, ND3_RASTER_Y, HERE, BG, PANEL, BORDER, TEXT_C, DIM, AMBER, CYAN, GREEN_C, BLUE_C, PURPLE)
-    beam_power_W = BEAM_ENERGY_MeV * MEV_TO_J * PARTICLE_RATE;
-    fnames = fieldnames(scalars);
-    vals   = cellfun(@(f) scalars.(f), fnames);
-    power  = vals * SCALE_FACTOR * MEV_TO_J;
-    total_comp = sum(power);
-    [~, order] = sort(vals);
-    fnames_s = fnames(order); power_s = power(order);
-
-    has_rz = ~isempty(e3) && ~isempty(r_ax) && ~isempty(z_ax);
-
-    bar_cols = zeros(numel(fnames_s),3);
-    for k = 1:numel(fnames_s)
-        nl = lower(fnames_s{k});
-        if contains(nl,'basket'); bar_cols(k,:) = AMBER;
-        elseif contains(nl,'window'); bar_cols(k,:) = CYAN;
-        elseif contains(nl,'he'); bar_cols(k,:) = BLUE_C;
-        elseif contains(nl,'nd3'); bar_cols(k,:) = GREEN_C;
-        else; bar_cols(k,:) = PURPLE;
-        end
-    end
-
-    if has_rz
-        fig = make_dark_figure(16, 10, BG);
-        ax_bar   = subplot(2,2,1,'Parent',fig);
-        ax_map   = subplot(2,2,2,'Parent',fig);
-        ax_axial = subplot(2,2,3,'Parent',fig);
-        ax_rad   = subplot(2,2,4,'Parent',fig);
-    else
-        fig = make_dark_figure(10, 5, BG);
-        ax_bar = axes(fig);
-    end
-
-    % Panel 1: component power bars
-    hold(ax_bar,'on');
-    yp = 1:numel(fnames_s);
-    x_max = max(power_s)*1e3;
-    for k = 1:numel(fnames_s)
-        barh(ax_bar, yp(k), power_s(k)*1e3, 0.6, 'FaceColor', bar_cols(k,:), ...
-            'EdgeColor', BORDER, 'LineWidth', 0.6);
-        text(ax_bar, power_s(k)*1e3 + x_max*0.02, yp(k), ...
-            sprintf('%.3f mW  (%.1f%%)', power_s(k)*1e3, power_s(k)/beam_power_W*100), ...
-            'Color',TEXT_C,'FontSize',8,'FontName','Courier New','VerticalAlignment','middle');
-    end
-    set(ax_bar,'YTick',yp,'YTickLabel',strrep(fnames_s,'_',' '));
-    apply_dark_axes(ax_bar, BG, PANEL, BORDER, TEXT_C, DIM);
-    xlabel(ax_bar,'Power deposited (mW)');
-    title(ax_bar, sprintf('Physical Power by Component  |  Beam %.0f MeV @ %.0f uA  ->  P=%.3f W  |  Tracked: %.3f mW', ...
-        BEAM_ENERGY_MeV, BEAM_CURRENT_A*1e6, beam_power_W, total_comp*1e3));
-
-    if has_rz
-        dr = r_ax(2) - r_ax(1);
-        dz = z_ax(2) - z_ax(1);
-        dV = annular_dV(r_ax, dr, dz);
-        rz_edep = rz_mean(e3);
-        power_density = rz_edep * SCALE_FACTOR * MEV_TO_J ./ dV;  % W/cm^3
-        nd3_total_W   = sum(rz_edep(:) * SCALE_FACTOR * MEV_TO_J, 'omitnan');
-
-        % Panel 2: R-Z power density map
-        pd_smooth = gauss_smooth2(fillmissing_zero(power_density), 0.8);
-        pcolor(ax_map, z_ax(:)', r_ax(:), pd_smooth); shading(ax_map,'flat');
-        colormap(ax_map,'plasma');
-        apply_dark_axes(ax_map, BG, PANEL, BORDER, TEXT_C, DIM);
-        add_colorbar(ax_map, 'Power density (W/cm^3)', TEXT_C, DIM);
-        hold(ax_map,'on');
-        for r_b = [ND3_RMIN_CM, ND3_RMAX_CM]
-            plot(ax_map,[z_ax(1) z_ax(end)],[r_b r_b],'--','Color',AMBER,'LineWidth',0.9);
-        end
-        xlabel(ax_map,'Z (cm)'); ylabel(ax_map,'R (cm)');
-        title(ax_map, sprintf('ND3 Power Density (W/cm^3)  |  Peak: %.3e  |  phi-avg', max(pd_smooth(:))));
-
-        % Panel 3: axial power profile
-        axial_power = sum(rz_edep * SCALE_FACTOR * MEV_TO_J .* (2*pi*r_ax(:)*dr), 1);  % W/cm
-        hold(ax_axial,'on');
-        fill(ax_axial,[z_ax; flipud(z_ax)]',[axial_power(:)*1e3; zeros(numel(z_ax),1)]', ...
-            GREEN_C,'FaceAlpha',0.15,'EdgeColor','none');
-        plot(ax_axial, z_ax, axial_power*1e3, 'Color', GREEN_C, 'LineWidth', 2);
-        [~, iz_pk] = max(axial_power);
-        plot(ax_axial,[z_ax(iz_pk) z_ax(iz_pk)],[0 max(axial_power)*1e3],':', ...
-            'Color',AMBER,'LineWidth',0.8);
-        apply_dark_axes(ax_axial, BG, PANEL, BORDER, TEXT_C, DIM);
-        xlabel(ax_axial,'Z (cm)'); ylabel(ax_axial,'Power (mW/cm)');
-        title(ax_axial, sprintf('ND3 Axial Power Profile  |  Peak Z=%.3f cm', z_ax(iz_pk)));
-
-        % Panel 4: radial power profile
-        radial_power = sum(rz_edep * SCALE_FACTOR * MEV_TO_J * dz, 2);  % W per annular shell
-        hold(ax_rad,'on');
-        fill(ax_rad,[r_ax; flipud(r_ax)]',[radial_power(:)*1e3; zeros(numel(r_ax),1)]', ...
-            CYAN,'FaceAlpha',0.15,'EdgeColor','none');
-        plot(ax_rad, r_ax, radial_power*1e3, 'Color', CYAN, 'LineWidth', 2);
-        xpatch = [ND3_RMIN_CM ND3_RMAX_CM ND3_RMAX_CM ND3_RMIN_CM];
-        ypatch = [0 0 max(radial_power)*1e3*1.05 max(radial_power)*1e3*1.05];
-        fill(ax_rad, xpatch, ypatch, GREEN_C, 'FaceAlpha',0.08,'EdgeColor','none');
-        plot(ax_rad,[ND3_RMIN_CM ND3_RMIN_CM],[0 max(radial_power)*1e3],'--','Color',AMBER,'LineWidth',0.9);
-        plot(ax_rad,[ND3_RMAX_CM ND3_RMAX_CM],[0 max(radial_power)*1e3],'--','Color',AMBER,'LineWidth',0.9);
-        apply_dark_axes(ax_rad, BG, PANEL, BORDER, TEXT_C, DIM);
-        xlabel(ax_rad,'R (cm)'); ylabel(ax_rad,'Power (mW / annular shell)');
-        title(ax_rad, sprintf('ND3 Radial Power Profile  |  Ri=%.2f-Ro=%.2f cm shaded', ND3_RMIN_CM, ND3_RMAX_CM));
-    end
-
-    add_stamp(fig, DIM);
-    extra = {sprintf('Beam: %.0f MeV e-  @  %.1f uA  ->  P_beam=%.3f W  |  scale=%.3e s^-1  |  eta=%.3f  rho=%.4f g/cm^3', ...
-                     BEAM_ENERGY_MeV, BEAM_CURRENT_A*1e6, beam_power_W, SCALE_FACTOR, ND3_PACKING_FRAC, ND3_DENSITY)};
-    all_lines = [make_geo_lines(ND3_RMIN_CM,ND3_RMAX_CM,ND3_HL_CM,ND3_VOL_CM3,ND3_DENSITY,ND3_PACKING_FRAC,ND3_MASS_G,ND3_RASTER_X,ND3_RASTER_Y), extra];
-    add_geo_annotation(fig, all_lines, PANEL, BORDER, DIM);
-    save_fig(fig, 'fig13_power_deposition.png', HERE);
-end
-
-% ── Exports ───────────────────────────────────────────────────────────────────
-
-function save_rz_csv(rz, r_ax, z_ax, fpath)
-    fid = fopen(fpath,'w');
-    if fid < 0; warning('Cannot write %s', fpath); return; end
-    fprintf(fid,'R_cm');
-    for k = 1:numel(z_ax); fprintf(fid,',%.6f',z_ax(k)); end
-    fprintf(fid,'\n');
-    for i = 1:size(rz,1)
-        fprintf(fid,'%.6f',r_ax(i));
-        for j = 1:size(rz,2); fprintf(fid,',%.6e',rz(i,j)); end
-        fprintf(fid,'\n');
-    end
-    fclose(fid);
-    [~,fn,ext] = fileparts(fpath);
-    fprintf('    saved  %s%s\n', fn, ext);
-end
-
-function save_profile_csv(x, y, xname, yname, fpath)
-    fid = fopen(fpath,'w');
-    if fid < 0; warning('Cannot write %s', fpath); return; end
-    fprintf(fid,'%s,%s\n', xname, yname);
-    for k = 1:numel(x); fprintf(fid,'%.6f,%.6e\n', x(k), y(k)); end
-    fclose(fid);
-    [~,fn,ext] = fileparts(fpath);
-    fprintf('    saved  %s%s\n', fn, ext);
-end
-
-function export_summary(all_stats, HERE)
-    fpath = fullfile(HERE, 'export_summary_statistics.csv');
-    fid   = fopen(fpath, 'w');
-    if fid < 0; warning('Cannot write %s', fpath); return; end
-    fnames = fieldnames(all_stats);
-    if isempty(fnames); fclose(fid); return; end
-    % Header
-    s0 = all_stats.(fnames{1});
-    fields = fieldnames(s0);
-    fprintf(fid, 'scorer,%s\n', strjoin(fields, ','));
-    for k = 1:numel(fnames)
-        s = all_stats.(fnames{k});
-        fprintf(fid, '%s', fnames{k});
-        for f = fields'
-            v = s.(f{1});
-            if isnumeric(v); fprintf(fid, ',%.6e', v);
-            else;            fprintf(fid, ',%s', v);
-            end
-        end
-        fprintf(fid, '\n');
-    end
-    fclose(fid);
-    fprintf('    saved  export_summary_statistics.csv\n');
-end
-
-function export_energy(scalars, SCALE_FACTOR, MEV_TO_J, BEAM_ENERGY_MeV, PARTICLE_RATE, HERE)
-    ELEM_CHARGE  = 1.602176634e-19;
-    beam_power_W = BEAM_ENERGY_MeV * MEV_TO_J * PARTICLE_RATE;
-    fnames = fieldnames(scalars);
-    vals   = cellfun(@(f) scalars.(f), fnames);
-    total  = sum(vals);
-    power  = vals * SCALE_FACTOR * MEV_TO_J;
-
-    fpath = fullfile(HERE, 'export_energy_balance.csv');
-    fid   = fopen(fpath, 'w');
-    if fid < 0; warning('Cannot write %s', fpath); return; end
-    fprintf(fid, 'component,energy_MeV_per_hist,fraction_pct,power_mW,power_frac_pct\n');
-    for k = 1:numel(fnames)
-        fprintf(fid, '%s,%.6e,%.4f,%.6f,%.4f\n', ...
-            fnames{k}, vals(k), vals(k)/total*100, power(k)*1e3, power(k)/beam_power_W*100);
-    end
-    fclose(fid);
-    fprintf('    saved  export_energy_balance.csv\n');
-end
-
-function export_phases(phases, z_ax, HERE)
-    pnames = fieldnames(phases);
-    fpath  = fullfile(HERE, 'export_phase_profiles.csv');
-    fid    = fopen(fpath, 'w');
-    if fid < 0; warning('Cannot write %s', fpath); return; end
-
-    % Determine which phases have data
-    active = {};
-    for k = 1:numel(pnames)
-        if ~isempty(phases.(pnames{k})); active{end+1} = pnames{k}; end %#ok<AGROW>
-    end
-    fprintf(fid, 'Z_cm,%s\n', strjoin(active, ','));
-
-    profs = zeros(numel(z_ax), numel(active));
-    for k = 1:numel(active)
-        p = axl_prof(phases.(active{k}));
-        n = min(numel(p), numel(z_ax));
-        profs(1:n, k) = p(1:n);
-    end
-    for iz = 1:numel(z_ax)
-        fprintf(fid, '%.6f', z_ax(iz));
-        for k = 1:numel(active); fprintf(fid, ',%.6e', profs(iz,k)); end
-        fprintf(fid, '\n');
-    end
-    fclose(fid);
-    fprintf('    saved  export_phase_profiles.csv\n');
-end
-
-% ── Report ────────────────────────────────────────────────────────────────────
-
-function write_report(all_stats, scalars, hd, n_figs, ...
-    ND3_RMIN_CM, ND3_RMAX_CM, ND3_HL_CM, ND3_VOL_CM3, ND3_DENSITY, ...
-    ND3_CRYSTAL_DENSITY, ND3_PACKING_FRAC, ND3_MASS_G, ND3_MOL_MASS, ...
-    ND3_RASTER_X, ND3_RASTER_Y, BASKET_INNER_RMIN, BASKET_INNER_RMAX, ...
-    BASKET_OUTER_RMIN, BASKET_OUTER_RMAX, HE_CORE_RMAX, HE_DENSITY, ...
-    WINDOW_THICK_CM, BEAM_ENERGY_MeV, BEAM_CURRENT_A, SCALE_FACTOR, ...
-    N_HISTORIES, PARTICLE_RATE, MEV_TO_J, HERE)
-
-    fpath = fullfile(HERE, 'analysis_report.txt');
-    fid   = fopen(fpath, 'w');
-    if fid < 0; warning('Cannot write analysis_report.txt'); return; end
-
-    SEP = repmat('-',1,70);
-    fprintf(fid, '%s\n', repmat('=',1,70));
-    fprintf(fid, '  TOPAS UITF ND3 -- ANALYSIS REPORT\n');
-    fprintf(fid, '  %s\n', datestr(now,'yyyy-mm-dd HH:MM:SS'));
-    fprintf(fid, '%s\n\n', repmat('=',1,70));
-
-    if isstruct(hd) && isfield(hd,'version')
-        fprintf(fid, 'SIMULATION\n%s\n', SEP);
-        fprintf(fid, '  TOPAS version  : %s\n', hd.version);
-        fprintf(fid, '  Parameter file : %s\n', hd.param_file);
-        fprintf(fid, '  Component      : %s\n\n', hd.component);
-        if ~isempty(hd.r_bins)
-            fprintf(fid, 'VOXEL GRID\n%s\n', SEP);
-            fprintf(fid, '  R   : %3d bins x %.4f cm -> %.3f cm\n', hd.r_bins, hd.r_size, hd.r_bins*hd.r_size);
-            fprintf(fid, '  Phi : %3d bins x %.4f deg -> %.0f deg\n', hd.phi_bins, hd.phi_size, hd.phi_bins*hd.phi_size);
-            fprintf(fid, '  Z   : %3d bins x %.4f cm -> %.3f cm\n', hd.z_bins, hd.z_size, hd.z_bins*hd.z_size);
-            fprintf(fid, '  Total voxels   : %d\n', hd.r_bins*hd.phi_bins*hd.z_bins);
-        end
-        if ~isempty(hd.warnings)
-            fprintf(fid, '\n  WARNINGS (%d):\n', numel(hd.warnings));
-            for w = hd.warnings; fprintf(fid, '    ** %s\n', w{1}(1:min(75,numel(w{1})))); end
-        end
-        fprintf(fid, '\n');
-    end
-
-    fprintf(fid, 'ND3 TARGET GEOMETRY & MATERIAL\n%s\n', SEP);
-    fprintf(fid, '  Shape             : annular cylinder (TsCylinder)\n');
-    fprintf(fid, '  Inner radius Ri   : %.2f cm\n', ND3_RMIN_CM);
-    fprintf(fid, '  Outer radius Ro   : %.2f cm\n', ND3_RMAX_CM);
-    fprintf(fid, '  Half-length HL    : %.2f cm  (full length %.2f cm)\n', ND3_HL_CM, 2*ND3_HL_CM);
-    fprintf(fid, '  Active volume     : %.2f cm^3\n', ND3_VOL_CM3);
-    fprintf(fid, '  Bulk density rho  : %.4f g/cm^3\n', ND3_DENSITY);
-    fprintf(fid, '  Crystal density   : %.4f g/cm^3\n', ND3_CRYSTAL_DENSITY);
-    fprintf(fid, '  Packing fraction  : %.4f  (%.1f%%)\n', ND3_PACKING_FRAC, ND3_PACKING_FRAC*100);
-    fprintf(fid, '  Mass (bulk)       : %.2f g  (spec: ~22 g)\n', ND3_MASS_G);
-    fprintf(fid, '  Molar mass        : %.3f g/mol\n', ND3_MOL_MASS);
-    fprintf(fid, '  Basket rotation   : 6 deg/s  (full revolution every 60 s)\n');
-    fprintf(fid, '  Beam raster       : %.1f x %.1f cm\n', ND3_RASTER_X, ND3_RASTER_Y);
-    fprintf(fid, '  Inner Al wall     : %.2f-%.2f cm  (1 mm)\n', BASKET_INNER_RMIN, BASKET_INNER_RMAX);
-    fprintf(fid, '  Outer Al wall     : %.2f-%.2f cm  (1 mm)\n', BASKET_OUTER_RMIN, BASKET_OUTER_RMAX);
-    fprintf(fid, '  He coolant core   : r < %.2f cm  rho=%.4f g/cm^3\n', HE_CORE_RMAX, HE_DENSITY);
-    fprintf(fid, '  Al windows        : %.1f mm  upstream & downstream\n\n', WINDOW_THICK_CM*10);
-
-    sfields = fieldnames(all_stats);
-    for k = 1:numel(sfields)
-        sc = sfields{k};
-        s  = all_stats.(sc);
-        u  = s.unit;
-        fprintf(fid, 'SCORER: %s\n%s\n', sc, SEP);
-        fprintf(fid, '  Quantity        : %s (%s)\n', s.quantity, u);
-        fprintf(fid, '  Voxels (nonzero): %d  (%d)\n', s.n_voxels, s.n_nonzero);
-        fprintf(fid, '  Total           : %.6e %s\n', s.total, u);
-        fprintf(fid, '  Min  /  Max     : %.6e  /  %.6e %s\n', s.min, s.max, u);
-        fprintf(fid, '  Mean +/- sigma  : %.6e +/- %.6e %s\n', s.mean, s.std, u);
-        fprintf(fid, '  D2  / D50 / D98 : %.4e / %.4e / %.4e %s\n', s.d2, s.d50, s.d98, u);
-        fprintf(fid, '  CV              : %.2f%%\n', s.cv_pct);
-        fprintf(fid, '  UI              : %.4f\n\n', s.ui);
-    end
-
-    sc_fields = fieldnames(scalars);
-    if ~isempty(sc_fields)
-        vals_sc = cellfun(@(f) scalars.(f), sc_fields);
-        total_e = sum(vals_sc);
-        fprintf(fid, 'ENERGY BALANCE\n%s\n', SEP);
-        [~, ord] = sort(vals_sc,'descend');
-        for k = ord'
-            fprintf(fid, '  %-38s: %14.1f MeV  (%5.2f%%)\n', sc_fields{k}, vals_sc(k), vals_sc(k)/total_e*100);
-        end
-        fprintf(fid, '%s\n  %-38s: %14.1f MeV\n\n', SEP, 'TOTAL', total_e);
-
-        beam_power_W = BEAM_ENERGY_MeV * MEV_TO_J * PARTICLE_RATE;
-        power_sc = vals_sc * SCALE_FACTOR * MEV_TO_J;
-        total_pw = sum(power_sc);
-        fprintf(fid, 'PHYSICAL POWER  (reference: %.1f MeV @ %.1f uA)\n%s\n', BEAM_ENERGY_MeV, BEAM_CURRENT_A*1e6, SEP);
-        fprintf(fid, '  Beam incident power        : %12.4f mW\n', beam_power_W*1e3);
-        fprintf(fid, '  Scale factor (phys/MC)     : %.6e  s^-1\n', SCALE_FACTOR);
-        for k = ord'
-            pw = power_sc(k);
-            fprintf(fid, '  %-38s: %12.6f mW  (%5.2f%%)\n', sc_fields{k}, pw*1e3, pw/beam_power_W*100);
-        end
-        fprintf(fid, '%s\n  %-38s: %12.6f mW\n', SEP, 'TRACKED TOTAL', total_pw*1e3);
-        fprintf(fid, '  %-38s: %12.6f mW\n\n', 'UNTRACKED (escape+scatter)', (beam_power_W-total_pw)*1e3);
-    end
-
-    fprintf(fid, 'OUTPUT\n%s\n  Figures  : %d\n  Directory: %s\n\n', SEP, n_figs, HERE);
-    fprintf(fid, 'NOTES\n%s\n', SEP);
-    fprintf(fid, '  Phi-averaging assumes azimuthal symmetry.\n');
-    fprintf(fid, '  Gaussian smoothing (sigma=0.8-1.0) applied in heatmaps only.\n');
-    fprintf(fid, '  DVH and UI computed over nonzero voxels only.\n');
-    fprintf(fid, '  UI = (D10%%-D90%%) / Dmean  per Z-slice.\n');
-    fprintf(fid, '%s\n', repmat('=',1,70));
-    fclose(fid);
-    fprintf('    saved  analysis_report.txt\n');
-end
-
-% ── Utility ───────────────────────────────────────────────────────────────────
-
-function out = fillmissing_zero(x)
-    % Replace NaN/Inf with zero.
-    out = x;
-    out(~isfinite(out)) = 0;
+    title(ax, sprintf('Axial Dose Profile  (averaged over all phi and R)  |  NUI = %.4f', nui));
+    add_stamp(ax, DIM);
+    save_tab_fig(ax, 'fig04_axial_profile.png', HERE);
 end

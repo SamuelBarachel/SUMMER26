@@ -896,7 +896,7 @@ d:Raster/Height                             = 2.0 cm
 d:BeamRef/Current                           = 1.0e-5 A
 
 # Monte Carlo histories for statistical precision (10M ~ 1% uncertainty)
-i:MC/NumberOfHistories                      = 1000000000
+i:MC/NumberOfHistories                      = 100000
 
 # Random number seed (42 for reproducibility; set to 0 for random seed)
 i:MC/RandomSeed                             = 42
@@ -906,7 +906,7 @@ i:MC/RandomSeed                             = 42
 ###############################################################################
 
 # Threading and I/O
-i:Ts/NumberOfThreads                        = 60
+i:Ts/NumberOfThreads                        = 8
 i:Ts/Seed                                   = MC/RandomSeed
 b:Ts/PauseBeforeQuit                        = "False"
 b:Ts/DumpParameters                         = "False"
@@ -919,7 +919,7 @@ i:Ts/EventVerbosity                         = 0
 i:Ts/RunVerbosity                           = 0
 
 # Progress reporting
-i:Ts/ShowHistoryCountAtInterval             = 20000
+i:Ts/ShowHistoryCountAtInterval             = 2000
 
 # Error reporting threshold
 # FIX (2026-06-09): Set to 0 to suppress parameterization error spam.
