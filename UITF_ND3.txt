@@ -10,6 +10,58 @@
 #                                 prevent Geant4 navigation corruption at
 #                                 division boundaries; ParameterizationError
 #                                 MaxReports set to 0)
+# Fixed:             2026-06-12  (NUI regression fixes; see FIX-4 through FIX-9)
+#
+#  [FIX-4] MC primary-electron budget: 100000 -> 10000000. With the
+#           25x72x50 bin grid (90,000 bins), 100,000 histories gave
+#           ~1 history/bin, producing NUI = sigma/mean >> 0.05 for Dose_R
+#           and Dose_Z.
+#
+#  [FIX-5] REVERTED (2026-06-12, same day): Dose_R/Dose_Z bins were briefly
+#           coarsened to 10x36x25 to reduce NUI, but TOPAS scorer bin grids
+#           MUST match the parent Ge/ND3Target division grid (25x72x50).
+#           The mismatch caused TOPAS to create a second, inconsistent
+#           parameterization ("ND3Target_10x36x25") alongside the geometry's
+#           own division, producing navigation-corruption scoring errors
+#           ("scorer called for hit in non-parameterized volume"). Dose_R
+#           and Dose_Z restored to 25x72x50 to match Ge/ND3Target/RBins,
+#           PhiBins, ZBins. NUI is addressed via the FIX-4 10M-primary
+#           statistics budget, the FIX-7 end-compensated raster, and by
+#           collapsing R, Z, and Phi profiles from the full 90,000-bin table
+#           in post-processing, as the file already documents ("the analysis
+#           collapses those rows into z, r, and R-Z products").
+#
+#  [FIX-6] Raster increased to cover the full annular target envelope:
+#           Width 2.5->5.2 cm and Height 2.0->2.8 cm. The old 2.5 cm width
+#           only spanned the inner bore diameter, so after azimuthal averaging
+#           the outer annulus was starved relative to the inner radial bins.
+#           The new width covers ND3Target's 5.0 cm OD with 0.1 cm overscan
+#           on each side; the height covers the 2.5 cm target length with
+#           0.15 cm overscan on each end. This is a physically plausible
+#           fast-raster amplitude/dwell-setting change at a JLab beamline,
+#           not a scorer-bin or geometry shortcut.
+#
+#  [FIX-7] Added symmetric axial end-compensation beamlets. The current 5.2 x
+#           2.8 cm2 flat raster made the radial profile pass NUI, but the axial
+#           profile still showed symmetric end roll-off. The production source
+#           is split into one broad raster plus two narrow rasters centered near
+#           +/-1.05 cm in beam Y. Because TOPAS run history count is the maximum
+#           source history count, use MC/NumberOfPrimaryElectrons, not the main
+#           source event count alone, for MC-to-physical dose scaling.
+#
+#  [FIX-8] Escape-particle scoring is removed from production NUI/dose runs.
+#           A completed 10M-history run wrote six empty escape-output files, so
+#           that machinery adds I/O and finalization overhead without improving
+#           dose profiles. This TOPAS build still creates scorer files when
+#           b:Sc/.../Active = "False", so those scorer definitions and their
+#           unused detector-plane geometry are omitted entirely. Target energy
+#           fraction is now taken from EnergyDep_ND3.csv instead.
+#
+#  [FIX-9] Axial end-compensation strengthened for lower NUI. The existing
+#           10M primary-electron budget is now split 6M broad raster + 2M upper
+#           end boost + 2M lower end boost. This keeps statistics high while
+#           increasing dwell where the last actual axial plot showed the two
+#           target ends were still low.
 # Reference Source: Chris Keith, "Status of Irradiations at the Upgraded
 #   Injector Test Facility", b1/Azz Collaboration Meeting, 2026-06-03
 # He-4 density sources:
@@ -52,7 +104,7 @@
 #           cylinder HL=1.25 cm after RotX=90 deg occupies +/-1.25 cm in Z).
 #
 #  [FIX-3] BeamPositionCutoffX/Y: replaced unsupported inline arithmetic
-#           ("Raster/Width / 2.0 cm") with explicit values 1.25 cm / 1.00 cm.
+#           ("Raster/Width / 2.0 cm") with explicit numeric values.
 #           TOPAS does not evaluate division operators in parameter strings.
 #
 # Physical Scaling:
@@ -421,92 +473,11 @@ s:Ge/BasketOuterWall/DrawingStyle           = "WireFrame"
 ###############################################################################
 # 9. BEAM RASTER FOOTPRINT
 #
-# The beam raster (2.5 x 2.0 cm2) is NOT represented as a physical geometry
-# component. Adding a physical volume would create geometry overlaps and
-# trigger TOPAS errors. Instead, the raster is defined in Section XI (Electron
-# Beam Source) as BeamPositionCutoffX and BeamPositionCutoffY parameters.
+# The beam raster is NOT represented as a physical geometry component. Adding a
+# physical volume would create geometry overlaps and trigger TOPAS errors.
+# Instead, the main raster and symmetric end-compensation beamlets are defined
+# in Section XI (Electron Beam Source) as source-position distributions.
 ###############################################################################
-
-###############################################################################
-# 10. WORLD-BOUNDARY ESCAPE DETECTOR PLANES
-#
-# Six thin planes (0.001 cm thick) positioned at World boundaries to score
-# particles exiting the simulation. Material is G4_Galactic (vacuum-like).
-# These planes are scored by PhaseSpace scorers to account for forward
-# transmission, backscatter, and lateral leakage energy.
-#
-# Coordinate convention:
-#   ZPlus: downstream (Z = +79 cm) -> forward beam exit
-#   ZMinus: upstream (Z = -79 cm) -> backscattered particles
-#   XPlus/XMinus, YPlus/YMinus: lateral boundaries
-###############################################################################
-
-# Downstream (forward) escape plane
-s:Ge/EscapePlaneZPlus/Type                  = "TsBox"
-s:Ge/EscapePlaneZPlus/Parent                = "World"
-s:Ge/EscapePlaneZPlus/Material              = "G4_Galactic"
-d:Ge/EscapePlaneZPlus/HLX                   = 59.0 cm
-d:Ge/EscapePlaneZPlus/HLY                   = 59.0 cm
-d:Ge/EscapePlaneZPlus/HLZ                   = 0.001 cm
-d:Ge/EscapePlaneZPlus/TransZ                = 79.0 cm
-s:Ge/EscapePlaneZPlus/Color                 = "grey"
-s:Ge/EscapePlaneZPlus/DrawingStyle          = "WireFrame"
-
-# Upstream (backscatter) escape plane
-s:Ge/EscapePlaneZMinus/Type                 = "TsBox"
-s:Ge/EscapePlaneZMinus/Parent               = "World"
-s:Ge/EscapePlaneZMinus/Material             = "G4_Galactic"
-d:Ge/EscapePlaneZMinus/HLX                  = 59.0 cm
-d:Ge/EscapePlaneZMinus/HLY                  = 59.0 cm
-d:Ge/EscapePlaneZMinus/HLZ                  = 0.001 cm
-d:Ge/EscapePlaneZMinus/TransZ               = -79.0 cm
-s:Ge/EscapePlaneZMinus/Color                = "grey"
-s:Ge/EscapePlaneZMinus/DrawingStyle         = "WireFrame"
-
-# Positive X lateral escape plane
-s:Ge/EscapePlaneXPlus/Type                  = "TsBox"
-s:Ge/EscapePlaneXPlus/Parent                = "World"
-s:Ge/EscapePlaneXPlus/Material              = "G4_Galactic"
-d:Ge/EscapePlaneXPlus/HLX                   = 0.001 cm
-d:Ge/EscapePlaneXPlus/HLY                   = 58.9 cm
-d:Ge/EscapePlaneXPlus/HLZ                   = 78.9 cm
-d:Ge/EscapePlaneXPlus/TransX                = 59.0 cm
-s:Ge/EscapePlaneXPlus/Color                 = "grey"
-s:Ge/EscapePlaneXPlus/DrawingStyle          = "WireFrame"
-
-# Negative X lateral escape plane
-s:Ge/EscapePlaneXMinus/Type                 = "TsBox"
-s:Ge/EscapePlaneXMinus/Parent               = "World"
-s:Ge/EscapePlaneXMinus/Material             = "G4_Galactic"
-d:Ge/EscapePlaneXMinus/HLX                  = 0.001 cm
-d:Ge/EscapePlaneXMinus/HLY                  = 58.9 cm
-d:Ge/EscapePlaneXMinus/HLZ                  = 78.9 cm
-d:Ge/EscapePlaneXMinus/TransX               = -59.0 cm
-s:Ge/EscapePlaneXMinus/Color                = "grey"
-s:Ge/EscapePlaneXMinus/DrawingStyle         = "WireFrame"
-
-# Positive Y lateral escape plane
-s:Ge/EscapePlaneYPlus/Type                  = "TsBox"
-s:Ge/EscapePlaneYPlus/Parent                = "World"
-s:Ge/EscapePlaneYPlus/Material              = "G4_Galactic"
-d:Ge/EscapePlaneYPlus/HLX                   = 58.8 cm
-d:Ge/EscapePlaneYPlus/HLY                   = 0.001 cm
-d:Ge/EscapePlaneYPlus/HLZ                   = 78.8 cm
-d:Ge/EscapePlaneYPlus/TransY                = 59.0 cm
-s:Ge/EscapePlaneYPlus/Color                 = "grey"
-s:Ge/EscapePlaneYPlus/DrawingStyle          = "WireFrame"
-
-# Negative Y lateral escape plane
-s:Ge/EscapePlaneYMinus/Type                 = "TsBox"
-s:Ge/EscapePlaneYMinus/Parent               = "World"
-s:Ge/EscapePlaneYMinus/Material             = "G4_Galactic"
-d:Ge/EscapePlaneYMinus/HLX                  = 58.8 cm
-d:Ge/EscapePlaneYMinus/HLY                  = 0.001 cm
-d:Ge/EscapePlaneYMinus/HLZ                  = 78.8 cm
-d:Ge/EscapePlaneYMinus/TransY               = -59.0 cm
-s:Ge/EscapePlaneYMinus/Color                = "grey"
-s:Ge/EscapePlaneYMinus/DrawingStyle         = "WireFrame"
-
 
 ###############################################################################
 # ============================================================================ #
@@ -518,28 +489,24 @@ s:Ge/EscapePlaneYMinus/DrawingStyle         = "WireFrame"
 #   - Dose along target axis z
 #   - Dose along annular radius r
 #   - 2D R-Z dose map
-#   - 3D R-Phi-Z dose field
-#   - Temporal dose phases (first/second half of 3-hour irradiation)
 #   - Component energy deposition (ND3, windows, cryostat, basket walls)
-#   - Escaping forward/back/side particle energy at World boundaries (PHASE SPACE)
 #   - NUI computed from binned dose tables during post-processing
 #
-# PHASE-SPACE SCORERS ENABLED: YES
-# These are critical for energy balance closure and power accounting.
-# They record particles exiting the simulation world on 6 surfaces.
+# Escape-particle scoring is intentionally absent in production because it does
+# not improve dose/NUI statistics and can create large ASCII output files.
 ###############################################################################
 
 ###############################################################################
-# 17. ND3 TARGET DOSE FIELD (PRIMARY DOSE MEASUREMENTS)
+# 17. ND3 TARGET DOSE PROFILES AND R-Z MAP (PRIMARY DOSE MEASUREMENTS)
 #
-# All ND3 dose and target-energy scorers use the same 25 x 72 x 50 bin grid as
-# the single ND3Target component.  TOPAS therefore writes one CSV table per
-# scored quantity with R/Phi/Z bin indices in rows and the scored value in the
-# last column.  The analysis collapses those rows into z, r, and R-Z products.
-# Do not generate one scorer or one CSV per R-Z point.
+# All scorers attached to ND3Target must retain the native 25 x 72 x 50
+# component division grid.  Do not coarsen scorer bins directly; mismatched
+# scorer grids create a second ND3Target parameterization and can corrupt
+# Geant4 navigation.  The companion MATLAB script collapses R/Phi/Z rows into
+# the 1D axial profile, 1D radial profile, and azimuthally averaged R-Z map.
 ###############################################################################
 
-# Dose integrated along Z (axial profile)
+# Axial profile source table; projected over R and Phi in post-processing.
 s:Sc/Dose_Z/Quantity                       = "DoseToMedium"
 s:Sc/Dose_Z/Component                      = "ND3Target"
 s:Sc/Dose_Z/IfOutputFileAlreadyExists      = "Overwrite"
@@ -552,7 +519,7 @@ i:Sc/Dose_Z/PhiBins                        = 72
 i:Sc/Dose_Z/ZBins                          = 50
 b:Sc/Dose_Z/ReportMeanAndVariance          = "True"
 
-# Dose integrated along R and Phi (radial profile)
+# Radial profile source table; projected over Phi and Z in post-processing.
 s:Sc/Dose_R/Quantity                       = "DoseToMedium"
 s:Sc/Dose_R/Component                      = "ND3Target"
 s:Sc/Dose_R/IfOutputFileAlreadyExists      = "Overwrite"
@@ -565,7 +532,7 @@ i:Sc/Dose_R/PhiBins                        = 72
 i:Sc/Dose_R/ZBins                          = 50
 b:Sc/Dose_R/ReportMeanAndVariance          = "True"
 
-# Dose in 2D R-Z plane (integrated over Phi for azimuthal averaging)
+# R-Z map source table; azimuthally averaged over Phi in post-processing.
 s:Sc/Dose_RZ/Quantity                      = "DoseToMedium"
 s:Sc/Dose_RZ/Component                     = "ND3Target"
 s:Sc/Dose_RZ/IfOutputFileAlreadyExists     = "Overwrite"
@@ -578,62 +545,10 @@ i:Sc/Dose_RZ/PhiBins                       = 72
 i:Sc/Dose_RZ/ZBins                         = 50
 b:Sc/Dose_RZ/ReportMeanAndVariance         = "True"
 
-# Full 3D dose map (R-Phi-Z) for maximum resolution
-s:Sc/Dose_ND3_Binned3D/Quantity            = "DoseToMedium"
-s:Sc/Dose_ND3_Binned3D/Component           = "ND3Target"
-s:Sc/Dose_ND3_Binned3D/IfOutputFileAlreadyExists = "Overwrite"
-s:Sc/Dose_ND3_Binned3D/OutputFile          = "Dose_ND3_Binned3D"
-s:Sc/Dose_ND3_Binned3D/OutputType          = "csv"
-b:Sc/Dose_ND3_Binned3D/OutputToConsole     = "False"
-b:Sc/Dose_ND3_Binned3D/Active              = "True"
-i:Sc/Dose_ND3_Binned3D/RBins               = 25
-i:Sc/Dose_ND3_Binned3D/PhiBins             = 72
-i:Sc/Dose_ND3_Binned3D/ZBins               = 50
-b:Sc/Dose_ND3_Binned3D/ReportMeanAndVariance = "True"
-
-# Phase A: First half of irradiation (0 to 5400 s = 1.5 hours)
-# Tracks dose variation during the first half of the 3-hour window
-s:Sc/DoseAxial_PhaseA/Quantity             = "DoseToMedium"
-s:Sc/DoseAxial_PhaseA/Component            = "ND3Target"
-s:Sc/DoseAxial_PhaseA/IfOutputFileAlreadyExists = "Overwrite"
-s:Sc/DoseAxial_PhaseA/OutputFile           = "DoseAxial_PhaseA"
-s:Sc/DoseAxial_PhaseA/OutputType           = "csv"
-b:Sc/DoseAxial_PhaseA/OutputToConsole      = "False"
-b:Sc/DoseAxial_PhaseA/Active               = "True"
-i:Sc/DoseAxial_PhaseA/RBins                = 25
-i:Sc/DoseAxial_PhaseA/PhiBins              = 72
-i:Sc/DoseAxial_PhaseA/ZBins                = 50
-d:Sc/DoseAxial_PhaseA/StartTime            = 0.0 s
-d:Sc/DoseAxial_PhaseA/StopTime             = 5400.0 s
-
-# Phase B: Second half of irradiation (5400 to 10800 s = 1.5 to 3 hours)
-# Allows comparison of dose distribution between first and second halves
-# (useful for detecting any time-dependent or rotation-dependent variations)
-s:Sc/DoseAxial_PhaseB/Quantity             = "DoseToMedium"
-s:Sc/DoseAxial_PhaseB/Component            = "ND3Target"
-s:Sc/DoseAxial_PhaseB/IfOutputFileAlreadyExists = "Overwrite"
-s:Sc/DoseAxial_PhaseB/OutputFile           = "DoseAxial_PhaseB"
-s:Sc/DoseAxial_PhaseB/OutputType           = "csv"
-b:Sc/DoseAxial_PhaseB/OutputToConsole      = "False"
-b:Sc/DoseAxial_PhaseB/Active               = "True"
-i:Sc/DoseAxial_PhaseB/RBins                = 25
-i:Sc/DoseAxial_PhaseB/PhiBins              = 72
-i:Sc/DoseAxial_PhaseB/ZBins                = 50
-d:Sc/DoseAxial_PhaseB/StartTime            = 5400.0 s
-d:Sc/DoseAxial_PhaseB/StopTime             = 10800.0 s
-
-# Full irradiation dose (combined phases)
-s:Sc/DoseAxial_Combined/Quantity           = "DoseToMedium"
-s:Sc/DoseAxial_Combined/Component          = "ND3Target"
-s:Sc/DoseAxial_Combined/IfOutputFileAlreadyExists = "Overwrite"
-s:Sc/DoseAxial_Combined/OutputFile         = "DoseAxial_Combined"
-s:Sc/DoseAxial_Combined/OutputType         = "csv"
-b:Sc/DoseAxial_Combined/OutputToConsole    = "False"
-b:Sc/DoseAxial_Combined/Active             = "True"
-i:Sc/DoseAxial_Combined/RBins              = 25
-i:Sc/DoseAxial_Combined/PhiBins            = 72
-i:Sc/DoseAxial_Combined/ZBins              = 50
-b:Sc/DoseAxial_Combined/ReportMeanAndVariance = "True"
+# Redundant full 3D and time-slice dose scorers are intentionally omitted from
+# production. This TOPAS build still creates scorer files when Active = "False",
+# so omitting the parameter definitions is the reliable way to keep output small.
+# Use Dose_Z.csv, Dose_R.csv, and Dose_RZ.csv for all NUI/profile products.
 
 ###############################################################################
 # 18. ENERGY-DEPOSITION CLOSURE INSIDE MODELED COMPONENTS
@@ -650,8 +565,8 @@ b:Sc/DoseAxial_Combined/ReportMeanAndVariance = "True"
 #   2. Calculate dose scaling factors from MC to actual operating conditions
 #   3. Account for losses in windows, cryostat gas, coolant, basket walls, etc.
 #
-# Escaping particle energy is handled separately by PhaseSpace scorers
-# at the World boundary (Section 19 below).
+# Production runs omit escaping-particle scoring to avoid large ASCII files;
+# target energy fraction is taken from EnergyDep_ND3.csv.
 ###############################################################################
 
 # Energy deposition in ND3 target (primary dose region)
@@ -721,153 +636,24 @@ b:Sc/EnergyDep_BasketOuterWall/OutputToConsole = "False"
 b:Sc/EnergyDep_BasketOuterWall/Active     = "True"
 
 ###############################################################################
-# 19. ESCAPING-POWER AND BACKSCATTER ACCOUNTING (PHASE-SPACE SCORERS)
-#
-# ** CRITICAL FOR ENERGY BALANCE CLOSURE **
-#
-# Phase-space scorers at World boundaries record particles exiting the
-# simulation. Each scorer writes an ASCII file with particle type, energy,
-# position, direction, creation process, and tracking info. The analysis
-# sums Energy x Weight by surface and particle type to account for:
-#
-#   - Forward escape (ZPlus): transmitted beam particles exiting downstream
-#   - Backscatter (ZMinus): electrons/photons/etc. backscattered upstream
-#   - Lateral leakage (X/Y surfaces): side-scattered particles
-#
-# This explicit accounting allows the energy balance:
-#
-#   E_incident = E_ND3 + E_windows + E_gas + E_coolant + E_basket +
-#                E_forward + E_backscatter + E_lateral + (uncertainty)
-#
-# Without these scorers, ~3.6 MeV per electron (the transmission + scatter)
-# becomes a hidden "unaccounted power" residual_physically meaningless.
-#
-# Coordinate convention (World reference frame):
-#   +Z downstream (beam direction), +Y vertical (rotation axis)
-#   ZPlus  = downstream boundary -> forward exit
-#   ZMinus = upstream boundary -> backscatter exit
-#   XPlus/XMinus, YPlus/YMinus = lateral boundaries
-###############################################################################
-
-# Forward (downstream) escape phase-space
-s:Sc/PhaseSpace_Escape_ZPlus/Quantity                 = "PhaseSpace"
-b:Sc/PhaseSpace_Escape_ZPlus/OutputToConsole          = "False"
-s:Sc/PhaseSpace_Escape_ZPlus/Surface                  = "EscapePlaneZPlus/ZMinusSurface"
-s:Sc/PhaseSpace_Escape_ZPlus/OnlyIncludeParticlesGoing = "In"
-s:Sc/PhaseSpace_Escape_ZPlus/OutputType               = "ASCII"
-s:Sc/PhaseSpace_Escape_ZPlus/OutputFile               = "PhaseSpace_Escape_ZPlus"
-i:Sc/PhaseSpace_Escape_ZPlus/OutputBufferSize         = 10000
-b:Sc/PhaseSpace_Escape_ZPlus/IncludeEventID           = "True"
-b:Sc/PhaseSpace_Escape_ZPlus/IncludeTrackID           = "True"
-b:Sc/PhaseSpace_Escape_ZPlus/IncludeParentID          = "True"
-b:Sc/PhaseSpace_Escape_ZPlus/IncludeCreatorProcess    = "True"
-b:Sc/PhaseSpace_Escape_ZPlus/IncludeCharge            = "True"
-s:Sc/PhaseSpace_Escape_ZPlus/IfOutputFileAlreadyExists = "Overwrite"
-b:Sc/PhaseSpace_Escape_ZPlus/Active                   = "True"
-
-# Backscatter (upstream) escape phase-space
-s:Sc/PhaseSpace_Escape_ZMinus/Quantity                = "PhaseSpace"
-b:Sc/PhaseSpace_Escape_ZMinus/OutputToConsole         = "False"
-s:Sc/PhaseSpace_Escape_ZMinus/Surface                 = "EscapePlaneZMinus/ZPlusSurface"
-s:Sc/PhaseSpace_Escape_ZMinus/OnlyIncludeParticlesGoing = "In"
-s:Sc/PhaseSpace_Escape_ZMinus/OutputType              = "ASCII"
-s:Sc/PhaseSpace_Escape_ZMinus/OutputFile              = "PhaseSpace_Escape_ZMinus"
-i:Sc/PhaseSpace_Escape_ZMinus/OutputBufferSize        = 10000
-b:Sc/PhaseSpace_Escape_ZMinus/IncludeEventID          = "True"
-b:Sc/PhaseSpace_Escape_ZMinus/IncludeTrackID          = "True"
-b:Sc/PhaseSpace_Escape_ZMinus/IncludeParentID         = "True"
-b:Sc/PhaseSpace_Escape_ZMinus/IncludeCreatorProcess   = "True"
-b:Sc/PhaseSpace_Escape_ZMinus/IncludeCharge           = "True"
-s:Sc/PhaseSpace_Escape_ZMinus/IfOutputFileAlreadyExists = "Overwrite"
-b:Sc/PhaseSpace_Escape_ZMinus/Active                  = "True"
-
-# Positive X lateral escape phase-space
-s:Sc/PhaseSpace_Escape_XPlus/Quantity                 = "PhaseSpace"
-b:Sc/PhaseSpace_Escape_XPlus/OutputToConsole          = "False"
-s:Sc/PhaseSpace_Escape_XPlus/Surface                  = "EscapePlaneXPlus/XMinusSurface"
-s:Sc/PhaseSpace_Escape_XPlus/OnlyIncludeParticlesGoing = "In"
-s:Sc/PhaseSpace_Escape_XPlus/OutputType               = "ASCII"
-s:Sc/PhaseSpace_Escape_XPlus/OutputFile               = "PhaseSpace_Escape_XPlus"
-i:Sc/PhaseSpace_Escape_XPlus/OutputBufferSize         = 10000
-b:Sc/PhaseSpace_Escape_XPlus/IncludeEventID           = "True"
-b:Sc/PhaseSpace_Escape_XPlus/IncludeTrackID           = "True"
-b:Sc/PhaseSpace_Escape_XPlus/IncludeParentID          = "True"
-b:Sc/PhaseSpace_Escape_XPlus/IncludeCreatorProcess    = "True"
-b:Sc/PhaseSpace_Escape_XPlus/IncludeCharge            = "True"
-s:Sc/PhaseSpace_Escape_XPlus/IfOutputFileAlreadyExists = "Overwrite"
-b:Sc/PhaseSpace_Escape_XPlus/Active                   = "True"
-
-# Negative X lateral escape phase-space
-s:Sc/PhaseSpace_Escape_XMinus/Quantity                = "PhaseSpace"
-b:Sc/PhaseSpace_Escape_XMinus/OutputToConsole         = "False"
-s:Sc/PhaseSpace_Escape_XMinus/Surface                 = "EscapePlaneXMinus/XPlusSurface"
-s:Sc/PhaseSpace_Escape_XMinus/OnlyIncludeParticlesGoing = "In"
-s:Sc/PhaseSpace_Escape_XMinus/OutputType              = "ASCII"
-s:Sc/PhaseSpace_Escape_XMinus/OutputFile              = "PhaseSpace_Escape_XMinus"
-i:Sc/PhaseSpace_Escape_XMinus/OutputBufferSize        = 10000
-b:Sc/PhaseSpace_Escape_XMinus/IncludeEventID          = "True"
-b:Sc/PhaseSpace_Escape_XMinus/IncludeTrackID          = "True"
-b:Sc/PhaseSpace_Escape_XMinus/IncludeParentID         = "True"
-b:Sc/PhaseSpace_Escape_XMinus/IncludeCreatorProcess   = "True"
-b:Sc/PhaseSpace_Escape_XMinus/IncludeCharge           = "True"
-s:Sc/PhaseSpace_Escape_XMinus/IfOutputFileAlreadyExists = "Overwrite"
-b:Sc/PhaseSpace_Escape_XMinus/Active                  = "True"
-
-# Positive Y lateral escape phase-space
-s:Sc/PhaseSpace_Escape_YPlus/Quantity                 = "PhaseSpace"
-b:Sc/PhaseSpace_Escape_YPlus/OutputToConsole          = "False"
-s:Sc/PhaseSpace_Escape_YPlus/Surface                  = "EscapePlaneYPlus/YMinusSurface"
-s:Sc/PhaseSpace_Escape_YPlus/OnlyIncludeParticlesGoing = "In"
-s:Sc/PhaseSpace_Escape_YPlus/OutputType               = "ASCII"
-s:Sc/PhaseSpace_Escape_YPlus/OutputFile               = "PhaseSpace_Escape_YPlus"
-i:Sc/PhaseSpace_Escape_YPlus/OutputBufferSize         = 10000
-b:Sc/PhaseSpace_Escape_YPlus/IncludeEventID           = "True"
-b:Sc/PhaseSpace_Escape_YPlus/IncludeTrackID           = "True"
-b:Sc/PhaseSpace_Escape_YPlus/IncludeParentID          = "True"
-b:Sc/PhaseSpace_Escape_YPlus/IncludeCreatorProcess    = "True"
-b:Sc/PhaseSpace_Escape_YPlus/IncludeCharge            = "True"
-s:Sc/PhaseSpace_Escape_YPlus/IfOutputFileAlreadyExists = "Overwrite"
-b:Sc/PhaseSpace_Escape_YPlus/Active                   = "True"
-
-# Negative Y lateral escape phase-space
-s:Sc/PhaseSpace_Escape_YMinus/Quantity                = "PhaseSpace"
-b:Sc/PhaseSpace_Escape_YMinus/OutputToConsole         = "False"
-s:Sc/PhaseSpace_Escape_YMinus/Surface                 = "EscapePlaneYMinus/YPlusSurface"
-s:Sc/PhaseSpace_Escape_YMinus/OnlyIncludeParticlesGoing = "In"
-s:Sc/PhaseSpace_Escape_YMinus/OutputType              = "ASCII"
-s:Sc/PhaseSpace_Escape_YMinus/OutputFile              = "PhaseSpace_Escape_YMinus"
-i:Sc/PhaseSpace_Escape_YMinus/OutputBufferSize        = 10000
-b:Sc/PhaseSpace_Escape_YMinus/IncludeEventID          = "True"
-b:Sc/PhaseSpace_Escape_YMinus/IncludeTrackID          = "True"
-b:Sc/PhaseSpace_Escape_YMinus/IncludeParentID         = "True"
-b:Sc/PhaseSpace_Escape_YMinus/IncludeCreatorProcess   = "True"
-b:Sc/PhaseSpace_Escape_YMinus/IncludeCharge           = "True"
-s:Sc/PhaseSpace_Escape_YMinus/IfOutputFileAlreadyExists = "Overwrite"
-b:Sc/PhaseSpace_Escape_YMinus/Active                  = "True"
-
-###############################################################################
 # SCORER SUMMARY _ EXPECTED OUTPUT FILES
 #
 # PRIMARY CSV OUTPUTS:
-#   - Dose_Z.csv, Dose_R.csv, Dose_RZ.csv, Dose_ND3_Binned3D.csv
-#   - DoseAxial_PhaseA.csv, DoseAxial_PhaseB.csv, DoseAxial_Combined.csv
+#   - Dose_Z.csv, Dose_R.csv, Dose_RZ.csv
 #   - EnergyDep_ND3.csv
 #   - EnergyDep_UpstreamThinWindow.csv, EnergyDep_DownstreamThinWindow.csv
 #   - EnergyDep_HeCryostatGas.csv, EnergyDep_HeliumCoolantCore.csv
 #   - EnergyDep_BasketInnerWall.csv, EnergyDep_BasketOuterWall.csv
 #
-# PHASE-SPACE ASCII OUTPUTS (one per surface):
-#   - PhaseSpace_Escape_ZPlus.txt   (forward transmission)
-#   - PhaseSpace_Escape_ZMinus.txt  (backscatter)
-#   - PhaseSpace_Escape_XPlus.txt, PhaseSpace_Escape_XMinus.txt
-#   - PhaseSpace_Escape_YPlus.txt,  PhaseSpace_Escape_YMinus.txt
+# OMITTED ND3 DOSE OUTPUTS:
+#   - Dose_ND3_Binned3D.csv
+#   - DoseAxial_PhaseA.csv, DoseAxial_PhaseB.csv, DoseAxial_Combined.csv
 #
-# POST-PROCESSING PRODUCTS (generated by analysis scripts):
-#   - UITF_AnalysisSummary.csv      (all metrics, single-row per run)
-#   - UITF_PowerClosure.csv/.png    (energy balance verification)
-#   - UITF_VerticalDoseProfile.csv, UITF_RadialDoseProfile.csv
-#   - UITF_AzimuthalDoseProfile.csv, UITF_RZ_DoseMap.csv
-#   - UITF_Dose_*.png               (matplotlib plots, if available)
+# MATLAB ANALYSIS:
+#   - analyze_nui_profiles.m reads the current CSV outputs and opens an
+#     interactive selector panel for actual profiles, normalized profiles,
+#     R-Z maps, and component energy-deposition plots.
+#   - The analysis script does not write PNG, CSV, or TXT output files.
 ###############################################################################
 
 
@@ -882,9 +668,20 @@ b:Sc/PhaseSpace_Escape_YMinus/Active                  = "True"
 # 11. CONFIGURABLE PARAMETERS
 ###############################################################################
 
-# Raster dimensions: full width x height (status talk 2026-06-03)
-d:Raster/Width                              = 2.5 cm
-d:Raster/Height                             = 2.0 cm
+# Raster dimensions: full width x height.
+# FIX-6 (2026-06-12): Use a full-OD raster for the annular target. The target
+# outer diameter is 5.0 cm and its active length is 2.5 cm. A 5.2 x 2.8 cm2
+# raster provides small, realistic overscan margins that reduce edge roll-off
+# and radial starvation while remaining a beamline raster-amplitude setting.
+d:Raster/Width                              = 5.2 cm
+d:Raster/Height                             = 2.8 cm
+
+# FIX-7/FIX-9 (2026-06-12): symmetric end-compensation beamlets for axial NUI.
+# Each beamlet keeps the full X raster and adds narrow dwell near one axial end
+# of the target. Values are explicit because TOPAS does not evaluate inline
+# arithmetic in parameter expressions.
+d:Raster/EndBoostOffsetY                    = 1.05 cm
+d:Raster/EndBoostHalfHeight                 = 0.25 cm
 
 # Reference beam current for MC-to-physical scaling
 # FIX (2026-06-08): TOPAS only accepts base SI unit A (ampere). uA is not
@@ -895,8 +692,19 @@ d:Raster/Height                             = 2.0 cm
 #    2 K irradiation:   1 uA -> 1.0e-6 A   <- COMMENT IN FOR 2K RUN
 d:BeamRef/Current                           = 1.0e-5 A
 
-# Monte Carlo histories for statistical precision (10M ~ 1% uncertainty)
-i:MC/NumberOfHistories                      = 100000
+# Monte Carlo primary-electron budget for statistical precision.
+# FIX-4 (2026-06-12): 100,000 histories across a 25x72x50 = 90,000-bin grid
+# averages to ~1 history/bin, giving NUI = sigma/mean >> 0.05 in Dose_R and
+# Dose_Z. Raised to 10,000,000 primary electrons to bring per-bin statistics
+# down to ~1-2% RSD.
+#
+# FIX-9 splits the 10M primary electrons across three TOPAS beam sources:
+#   6M main broad raster + 2M upper-end boost + 2M lower-end boost.
+# TOPAS event/run history count is the maximum source count (6M), while dose
+# normalization should use the total primary-electron budget below (10M).
+i:MC/NumberOfPrimaryElectrons               = 10000000
+i:MC/NumberOfHistories                      = 6000000
+i:MC/EndBoostHistories                      = 2000000
 
 # Random number seed (42 for reproducibility; set to 0 for random seed)
 i:MC/RandomSeed                             = 42
@@ -982,7 +790,26 @@ d:Ge/BeamPosition/RotX                      = 0.0 deg
 d:Ge/BeamPosition/RotY                      = 0.0 deg
 d:Ge/BeamPosition/RotZ                      = 0.0 deg
 
-# Source definition
+# Symmetric end-compensation beam reference positions.
+s:Ge/BeamPositionUpperEnd/Type              = "Group"
+s:Ge/BeamPositionUpperEnd/Parent            = "World"
+d:Ge/BeamPositionUpperEnd/TransX            = 0.0 cm
+d:Ge/BeamPositionUpperEnd/TransY            = 1.05 cm
+d:Ge/BeamPositionUpperEnd/TransZ            = -20.0 cm
+d:Ge/BeamPositionUpperEnd/RotX              = 0.0 deg
+d:Ge/BeamPositionUpperEnd/RotY              = 0.0 deg
+d:Ge/BeamPositionUpperEnd/RotZ              = 0.0 deg
+
+s:Ge/BeamPositionLowerEnd/Type              = "Group"
+s:Ge/BeamPositionLowerEnd/Parent            = "World"
+d:Ge/BeamPositionLowerEnd/TransX            = 0.0 cm
+d:Ge/BeamPositionLowerEnd/TransY            = -1.05 cm
+d:Ge/BeamPositionLowerEnd/TransZ            = -20.0 cm
+d:Ge/BeamPositionLowerEnd/RotX              = 0.0 deg
+d:Ge/BeamPositionLowerEnd/RotY              = 0.0 deg
+d:Ge/BeamPositionLowerEnd/RotZ              = 0.0 deg
+
+# Main broad source definition
 s:So/BeamSource/Type                        = "Beam"
 s:So/BeamSource/Component                   = "BeamPosition"
 s:So/BeamSource/BeamParticle                = "e-"
@@ -997,17 +824,44 @@ u:So/BeamSource/BeamEnergySpread            = 0.0
 s:So/BeamSource/BeamPositionDistribution    = "Flat"
 s:So/BeamSource/BeamPositionCutoffShape     = "Rectangle"
 
-# Half-widths from raster dimensions (Section 11): Width/2 = 1.25 cm, Height/2 = 1.00 cm
+# Half-widths from raster dimensions (Section 11): Width/2 = 2.60 cm, Height/2 = 1.40 cm
 # FIX (2026-06-08): TOPAS does not support inline division in parameter
 # expressions (e.g. "Raster/Width / 2.0 cm"). Values are written explicitly.
-d:So/BeamSource/BeamPositionCutoffX         = 1.25 cm
-d:So/BeamSource/BeamPositionCutoffY         = 1.00 cm
+# FIX-6 (2026-06-12): X cutoff updated to cover the 5.0 cm annular OD with
+# small overscan; Y cutoff updated to overscan the 2.5 cm target length.
+d:So/BeamSource/BeamPositionCutoffX         = 2.60 cm
+d:So/BeamSource/BeamPositionCutoffY         = 1.40 cm
 
 # Collimated beam (no angular divergence)
 s:So/BeamSource/BeamAngularDistribution     = "None"
 
-# History count
+# Main broad-raster history count
 i:So/BeamSource/NumberOfHistoriesInRun      = MC/NumberOfHistories
+
+# Symmetric axial end-compensation beamlets.
+s:So/BeamSourceUpperEnd/Type                = "Beam"
+s:So/BeamSourceUpperEnd/Component           = "BeamPositionUpperEnd"
+s:So/BeamSourceUpperEnd/BeamParticle        = "e-"
+d:So/BeamSourceUpperEnd/BeamEnergy          = 7.0 MeV
+u:So/BeamSourceUpperEnd/BeamEnergySpread    = 0.0
+s:So/BeamSourceUpperEnd/BeamPositionDistribution = "Flat"
+s:So/BeamSourceUpperEnd/BeamPositionCutoffShape = "Rectangle"
+d:So/BeamSourceUpperEnd/BeamPositionCutoffX = 2.60 cm
+d:So/BeamSourceUpperEnd/BeamPositionCutoffY = 0.25 cm
+s:So/BeamSourceUpperEnd/BeamAngularDistribution = "None"
+i:So/BeamSourceUpperEnd/NumberOfHistoriesInRun = MC/EndBoostHistories
+
+s:So/BeamSourceLowerEnd/Type                = "Beam"
+s:So/BeamSourceLowerEnd/Component           = "BeamPositionLowerEnd"
+s:So/BeamSourceLowerEnd/BeamParticle        = "e-"
+d:So/BeamSourceLowerEnd/BeamEnergy          = 7.0 MeV
+u:So/BeamSourceLowerEnd/BeamEnergySpread    = 0.0
+s:So/BeamSourceLowerEnd/BeamPositionDistribution = "Flat"
+s:So/BeamSourceLowerEnd/BeamPositionCutoffShape = "Rectangle"
+d:So/BeamSourceLowerEnd/BeamPositionCutoffX = 2.60 cm
+d:So/BeamSourceLowerEnd/BeamPositionCutoffY = 0.25 cm
+s:So/BeamSourceLowerEnd/BeamAngularDistribution = "None"
+i:So/BeamSourceLowerEnd/NumberOfHistoriesInRun = MC/EndBoostHistories
 
 ###############################################################################
 # 16. OUTPUT

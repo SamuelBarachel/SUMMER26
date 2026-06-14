@@ -1,0 +1,21 @@
+TOPAS ND3 actual and normalized plot summary
+Input directory: /Users/takwirira/SUMMER26
+
+Generated plots:
+  actual_axial_profile.png
+  actual_radial_profile.png
+  actual_rz_dose_map.png
+  normalized_axial_profile.png
+  normalized_radial_profile.png
+  normalized_rz_dose_map.png
+
+NUI results from current CSVs:
+  Axial NUI: 0.139999 (ABOVE target 0.0500)
+  Radial NUI: 0.014661 (PASS target 0.0500)
+  R-Z map dimensions: 25 R bins x 50 Z bins
+
+Target energy deposition:
+  Total deposited in ND3 target: 20817738.9233 MeV
+  Primary electrons used for percentage: 10000000
+  Incident beam energy: 70000000 MeV
+  Fraction deposited in ND3 target: 29.739627 %

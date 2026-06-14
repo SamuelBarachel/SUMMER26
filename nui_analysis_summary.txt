@@ -1,0 +1,48 @@
+TOPAS ND3 NUI analysis summary
+Execution timestamp: 2026-06-13 23:21:27
+Input directory: /Users/takwirira/SUMMER26
+
+Target NUI: 0.0500
+
+Target energy deposition
+  File: EnergyDep_ND3.csv
+  Total deposited in ND3 target: 19214026.6886 MeV
+  Incident primary electrons used for percentage: 10000000
+  Incident beam energy: 70000000 MeV
+  Fraction deposited in ND3 target: 27.448610 %
+
+Energy deposition by scored medium
+  BasketInnerWall: 3862190.5 MeV, 5.517415 % of incident, 12.426898 % of scored deposits
+  BasketOuterWall: 7550341.5 MeV, 10.786202 % of incident, 24.293811 % of scored deposits
+  DownstreamThinWindow: 120022.460938 MeV, 0.171461 % of incident, 0.386182 % of scored deposits
+  HeCryostatGas: 40492.8867188 MeV, 0.057847 % of incident, 0.130289 % of scored deposits
+  HeliumCoolantCore: 5302.31103516 MeV, 0.007575 % of incident, 0.017061 % of scored deposits
+  ND3Target: 19214026.6886 MeV, 27.448610 % of incident, 61.822625 % of scored deposits
+  UpstreamThinWindow: 286903.625 MeV, 0.409862 % of incident, 0.923135 % of scored deposits
+
+Axial profile
+  File: Dose_Z.csv
+  Mean dose: 0.000140628296636 Gy
+  NUI: 0.083793
+  NUI method: spatial std(projected profile) / mean projected dose
+  Variance column: not present; using spatial profile std/mean fallback
+
+Radial profile
+  File: Dose_R.csv
+  Mean dose: 0.000140818258435 Gy
+  NUI: 0.007977
+  NUI method: spatial std(projected profile) / mean projected dose
+  Variance column: not present; using spatial profile std/mean fallback
+
+R-Z map
+  File: Dose_RZ.csv
+  Mean dose: 0.000140818258435 Gy
+  Dimensions: 25 R bins x 50 Z bins
+
+Bremsstrahlung spectrum
+  Beam energy from TOPAS config: 7.000000 MeV
+  No phase-space files found; spectrum not plotted.
+
+Target check
+  Axial NUI <= 0.0500: ABOVE TARGET
+  Radial NUI <= 0.0500: PASS
